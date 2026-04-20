@@ -12,7 +12,6 @@ End-to-end: **~15 minutes** on a good connection.
 - [5. Run it locally](#5-run-it-locally)
 - [6. Deploy to Vercel (or skip)](#6-deploy-to-vercel-or-skip)
 - [7. Connect an MCP client](#7-connect-an-mcp-client)
-- [Optional: local files sync](#optional-local-files-sync)
 - [Troubleshooting](#troubleshooting)
 
 ---
