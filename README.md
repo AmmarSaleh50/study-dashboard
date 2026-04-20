@@ -157,8 +157,7 @@ Once the app is live at `https://your-project.vercel.app`, it serves a Streamabl
 #   paste: https://your-project.vercel.app/mcp
 
 # Claude Code (local CLI, any directory):
-claude mcp add --transport http --scope user \
-  study-dashboard https://your-project.vercel.app/mcp
+claude mcp add --transport http --scope user study-dashboard https://your-project.vercel.app/mcp
 ```
 
 Both flows open your dashboard's login in a browser for the one-time OAuth consent. After that, the same ~45 tools are live wherever you use Claude:
