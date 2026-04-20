@@ -26,11 +26,10 @@ End-to-end: **~15 minutes** on a good connection.
 
 ## 1. Create your Supabase project
 
-1. **supabase.com → New project**. Pick any region near you. Save the database password somewhere.
-2. Wait ~1 minute for it to provision.
-3. In the project dashboard, go to **Settings → API** and copy:
-   - **Project URL** (`https://abcdefg.supabase.co`) → you'll paste this as `SUPABASE_URL`.
-   - **`service_role` secret** → you'll paste this as `SUPABASE_SERVICE_KEY`. Treat it like a database password.
+1. **supabase.com → New project**. Pick any region near you. **Set a database password and save it somewhere secure** — you can't retrieve it later, only reset it.
+2. Wait ~1 minute for it to provision. You'll land on the project overview.
+3. Grab your **Project URL**: in the project overview page, click the **Copy** button (right under your project name) → select **Project URL**. This will be your `SUPABASE_URL`. You will need this when filling in the `.env` file.
+4. Grab your **service_role key**: sidebar → **Project Settings → API Keys** → switch to the **"Legacy anon, service_role API keys"** tab → copy the **`service_role` secret**. This will be your `SUPABASE_SERVICE_KEY`. Treat it like a database password — anyone who has it can read and write your entire database. Keep it safe! You will need this when filling in the `.env` file.
 
 ## 2. Clone + install deps
 
@@ -48,7 +47,7 @@ cd web && pnpm install && cd ..      # frontend deps
 cp .env.example .env
 ```
 
-Open `.env` and fill each value. Two you'll need to generate:
+Before filling in the `.env` file, you'll need to generate two values:
 
 ```bash
 # Password hash for logging into the dashboard
@@ -60,7 +59,7 @@ python -c 'import secrets; print(secrets.token_urlsafe(48))'
 # → paste into SESSION_SECRET
 ```
 
-Minimum `.env` for local dev:
+Minimum `.env` for local dev should look like this:
 
 ```ini
 SUPABASE_URL=https://YOUR-PROJECT.supabase.co
@@ -88,20 +87,13 @@ The SQL files under `db/migrations/` are the whole schema (courses, lectures, st
 4. Paste `db/migrations/0003_oauth.sql` → **Run**
 5. Paste `db/migrations/0004_app_settings.sql` → **Run**
 
-**If you have the Supabase CLI installed** (`npm i -g supabase` or via `npx`):
+**If you have the Supabase CLI installed, you could also do this** (`npm i -g supabase` or via `npx`):
 
 ```bash
 npx supabase link --project-ref YOUR-PROJECT-REF   # one-time
 for f in db/migrations/*.sql; do
   npx supabase db query --linked --file "$f"
 done
-```
-
-**Direct `psql`** — only works over IPv4 if your network doesn't route IPv6 to Supabase. Use the **Session Pooler** connection string from **Supabase → Settings → Database → Connection string**:
-
-```bash
-export SUPABASE_DB_URL='postgresql://postgres.YOUR-REF:YOUR-DB-PASSWORD@aws-0-<region>.pooler.supabase.com:5432/postgres'
-for f in db/migrations/*.sql; do psql "$SUPABASE_DB_URL" -f "$f"; done
 ```
 
 ## 5. Run it locally
@@ -120,9 +112,9 @@ cd web && pnpm dev
 
 Open `http://localhost:5173`, log in with the password you hashed. You'll see an empty dashboard with two CTAs: **Set up profile** and **Add your first course**. That's it — the rest of the UI and the MCP tools all create/read the same data from here.
 
-## 6. Deploy to Vercel (or skip)
+## 6. Deploy to Vercel (or any hosting provider you prefer)
 
-Skip this section if you only want to use the dashboard on your own machine. The local dev setup above is enough.
+Skip this section if you only want to use the dashboard on your own machine. Note: you won't have the ability to let your Claude do actions in your apps through the MCP, if you don't deploy the app to a public URL.  
 
 The repo is pre-configured (`vercel.json`) to deploy both the static frontend and the Python API functions from one project.
 
@@ -140,7 +132,7 @@ After the initial deploy, `git push origin main` auto-redeploys.
 
 ## 7. Connect an MCP client
 
-The FastAPI app mounts a Streamable HTTP MCP endpoint at `/mcp`, OAuth-gated. **One endpoint, same tools for every client** — Claude.ai, Claude Code, the Claude iOS app, the ChatGPT connector, anything else that speaks remote-HTTP MCP.
+The FastAPI app mounts a Streamable HTTP MCP endpoint at `/mcp`, OAuth-gated. **One endpoint, same tools for every client** — Claude.ai, Claude Code, the Claude phone app, anything else that speaks remote-HTTP MCP.
 
 Set `$URL` once and use it everywhere:
 
@@ -187,19 +179,6 @@ If that returns JSON, the server is reachable and OAuth is wired up. A 404 / 500
 ### Pair Claude.ai with a Project prompt
 
 You get a much nicer experience if you paste a tailored system prompt into a Claude.ai **Project** alongside the connector — it tells Claude what your courses are, what "studied" means, when to ask vs. just act, etc. Template + worked example: [`docs/claude-ai-system-prompt.md`](./docs/claude-ai-system-prompt.md).
-
-## Optional: local files sync
-
-`scripts/sync.py` mirrors a local folder to the `course_files` bucket in Supabase, so large PDFs don't live in your repo but still show up in the Files view (and get served to Claude through `read_course_file`).
-
-```bash
-export STUDY_ROOT="$HOME/Documents/study"
-uv run python scripts/sync.py push    # upload local → bucket
-uv run python scripts/sync.py pull    # download bucket → local
-uv run python scripts/sync.py watch   # continuous both-ways
-```
-
-If you prefer to upload files through the UI, you can ignore this.
 
 ## Troubleshooting
 

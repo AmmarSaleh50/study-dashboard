@@ -71,7 +71,7 @@ uv sync                              # Python deps
 cd web && pnpm install && cd ..      # frontend deps
 ```
 
-**2. Create a Supabase project.** Go to [supabase.com](https://supabase.com) → **New project**. From **Settings → API** grab your **Project URL** and the **`service_role` secret** — you'll paste both in the next step.
+**2. Create a Supabase project.** Go to [supabase.com](https://supabase.com) → **New project**. Set a database password and save it somewhere secure (you can't retrieve it later). Once it provisions: copy the **Project URL** from the project overview (top of the page → **Copy** → *Project URL*), and grab the **`service_role` key** from **Project Settings → API Keys → "Legacy anon, service_role API keys"**. You'll paste both in the next step.
 
 **3. Fill in `.env`.**
 
