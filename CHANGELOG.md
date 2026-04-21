@@ -4,6 +4,67 @@ All notable changes to study-dashboard will be documented here.
 Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 versions follow [SemVer](https://semver.org/spec/v2.0.0.html).
 
+## [v0.3.0] — 2026-04-21
+
+Big visual + localization release. Five dashboard themes, full English/German
+i18n, per-course schedule CRUD, a proper file manager in the Files tab, and a
+pile of phone-UX fixes. All backwards compatible — just run the one new
+migration on upgrade.
+
+### Added
+- **Five dashboard themes.** Pick from **Classic** (the default — serif,
+  airy), **Terminal** (mono, teal-on-black, hacker cockpit), **Zine**
+  (pastel cream + hand-drawn stickers), **Library** (sepia, card-catalog
+  aesthetic), or **Swiss** (12-col grid, red accent). Each one is a full
+  reskin — its own sidebar, CSS, and dashboard route, not just a palette.
+  Picker lives in **Settings → Theme**.
+- **Full in-app i18n — English and German.** Every route, form, toast,
+  empty state, error message, and theme-specific prose now runs through
+  `i18next`. Language is picked explicitly in **Profile → Language** and
+  persists in localStorage, decoupled from the date-format locale.
+- **Per-course schedule CRUD.** Add / edit / delete weekly slots from the
+  course-detail **Schedule** tab without leaving the page.
+- **File manager.** Rename files and folders, recursive folder delete,
+  create new folders, and a folder picker on the course form so each
+  course scopes its Files tab to a specific prefix in the bucket. New
+  backend endpoints `/files/move`, `/files/folder`, and a recursive
+  listing helper.
+- **Claude Design prompt template** under `docs/claude-design-prompt.md`
+  plus four worked-example outputs under `docs/examples/` — the starting
+  points for the Terminal / Zine / Library / Swiss themes.
+
+### Changed
+- **Phone UX pass.** 16 px form inputs (no more iOS zoom-on-focus), dvh
+  for keyboard-aware layout, date-picker chrome contained inside its
+  Field on iOS Safari, classic-theme weekly grid now renders the same
+  multi-column time grid on phone (with horizontal scroll) instead of a
+  stacked list — matches what the themed dashboards do.
+- **Course edit affordance** moved from a hover overlay on the course
+  card to an explicit **Edit course** button inside the course-detail
+  header. Notes and exam editing split out into their own cards with
+  their own edit buttons. "Scheduled" field on exams relabeled to
+  "Exam date".
+- **Dashboard top strip** on phone shows weekday / date / semester /
+  week at a glance.
+- **Settings pickers** (timezone, date format) auto-save on change; the
+  semester-label text field gets an inline Save button while dirty.
+  Success toasts are now neutral instead of green.
+- **README hero** replaced with a 2×2 still collage of the four paper
+  themes plus a looping GIF of Terminal. Mirrored in the German section.
+
+### Upgrade from v0.2.0
+
+```bash
+git pull origin main
+npx supabase db push   # applies 20260421000001_theme.sql
+cd web && pnpm install && pnpm build
+```
+
+The migration adds `app_settings.theme` with default `'editorial'`, so
+existing rows land on the Classic theme until you pick something else.
+
+[v0.3.0]: https://github.com/AmmarSaleh50/study-dashboard/releases/tag/v0.3.0
+
 ## [v0.2.0] — 2026-04-20
 
 Rename pass: the project is now English-canonical from the database up through
