@@ -148,6 +148,8 @@ export function TerminalDashboard() {
   // session bar next-lecture
   const firstSlot = nextEvent ? relLabel(nextEvent.at, now) : null;
 
+  const semWeek = semesterWeek(now, settings.data?.semester_start);
+
   return (
     <>
       {/* SESSION BAR */}
@@ -156,6 +158,12 @@ export function TerminalDashboard() {
           <div className="tm-cell">
             <span>{t("terminal.sem")}</span>
             <b>{semesterLabel}</b>
+          </div>
+        )}
+        {semWeek !== null && semWeek > 0 && (
+          <div className="tm-cell">
+            <span>{t("common.week")}</span>
+            <b>{pad(semWeek)}</b>
           </div>
         )}
         <div className="tm-cell">
