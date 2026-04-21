@@ -421,7 +421,7 @@ function SwissDeadlines({
 function SwissTasks({
   tasks, now,
 }: {
-  tasks: { id: string; course_code?: string | null; name: string; due_at?: string | null; status: string }[];
+  tasks: { id: string; course_code?: string | null; title: string; due_at?: string | null; status: string }[];
   now: Date;
 }) {
   const { t } = useTranslation();
@@ -498,7 +498,7 @@ function SwissTasks({
               textDecoration: isDone ? "line-through" : "none",
               color: "var(--s-ink)",
             }}>
-              {task.name}
+              {task.title}
             </div>
             {rt && (
               <span

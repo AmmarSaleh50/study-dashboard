@@ -526,7 +526,7 @@ function ZineDeadlines({
 function ZineTasks({
   tasks, now,
 }: {
-  tasks: { id: string; course_code?: string | null; name: string; due_at?: string | null; status: string }[];
+  tasks: { id: string; course_code?: string | null; title: string; due_at?: string | null; status: string }[];
   now: Date;
 }) {
   const { t } = useTranslation();
@@ -572,7 +572,7 @@ function ZineTasks({
               {t.course_code ?? "—"}
             </span>
             <div className="z-core">
-              <div className="z-nm" style={{ textDecoration: isDone ? "line-through" : "none" }}>{t.name}</div>
+              <div className="z-nm" style={{ textDecoration: isDone ? "line-through" : "none" }}>{t.title}</div>
             </div>
             {rt && <span className="z-rt" data-sev={rt.sev}>{rt.label}</span>}
           </div>

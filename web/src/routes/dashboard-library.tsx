@@ -474,7 +474,7 @@ function LibraryDeadlines({
 function LibraryTasks({
   tasks, now,
 }: {
-  tasks: { id: string; course_code?: string | null; name: string; due_at?: string | null; status: string }[];
+  tasks: { id: string; course_code?: string | null; title: string; due_at?: string | null; status: string }[];
   now: Date;
 }) {
   const { t } = useTranslation();
@@ -539,7 +539,7 @@ function LibraryTasks({
                   color: "var(--l-ink)",
                 }}
               >
-                {task.name}
+                {task.title}
               </div>
             </div>
             {rt && (

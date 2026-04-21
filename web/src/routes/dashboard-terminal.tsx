@@ -592,7 +592,7 @@ function TerminalTasks({
   tasks,
   now,
 }: {
-  tasks: { id: string; course_code?: string | null; name: string; due_at?: string | null; status: string }[];
+  tasks: { id: string; course_code?: string | null; title: string; due_at?: string | null; status: string }[];
   now: Date;
 }) {
   const { t } = useTranslation();
@@ -661,7 +661,7 @@ function TerminalTasks({
                 className="tm-nm"
                 style={{ textDecoration: isDone ? "line-through" : "none" }}
               >
-                {task.name}
+                {task.title}
               </div>
             </div>
             <span className="tm-stat" data-s={isDone ? "done" : task.status}>
