@@ -200,7 +200,7 @@ export function TerminalDashboard() {
             <div className="tm-date">
               {now.toLocaleDateString(localeCode, {
                 weekday: "short", day: "2-digit", month: "short", year: "numeric",
-              }).toUpperCase()}
+              }).toUpperCase().replace(/\./g, "")}
             </div>
             <div>
               {semesterLabel}{semesterLabel && institution ? " · " : ""}{institution.toUpperCase()}
@@ -471,8 +471,8 @@ function TerminalWeekGrid({
     d.setDate(monday.getDate() + (i - 1));
     return {
       i,
-      name: d.toLocaleDateString(localeCode, { weekday: "short" }).toUpperCase(),
-      d: `${pad(d.getDate())} ${d.toLocaleDateString(localeCode, { month: "short" }).toUpperCase()}`,
+      name: d.toLocaleDateString(localeCode, { weekday: "short" }).toUpperCase().replace(/\./g, ""),
+      d: `${pad(d.getDate())} ${d.toLocaleDateString(localeCode, { month: "short" }).toUpperCase().replace(/\./g, "")}`,
     };
   });
 
@@ -482,8 +482,8 @@ function TerminalWeekGrid({
     <div className="tm-sched-card">
       <div className="tm-sched">
         <div className="tm-sh tm-corner">
-          <div className="tm-dow tm-muted">CW{pad(cw)}</div>
-          <div className="tm-d-n">{monday.toLocaleDateString(localeCode, { month: "short" }).toUpperCase()}</div>
+          <div className="tm-dow tm-muted">{i18n.language === "de" ? "KW" : "CW"}{pad(cw)}</div>
+          <div className="tm-d-n">{monday.toLocaleDateString(localeCode, { month: "short" }).toUpperCase().replace(/\./g, "")}</div>
         </div>
         {days.map((day) => (
           <div key={day.i} className={"tm-sh" + (day.i === todayIdx ? " tm-today" : "")}>
@@ -562,7 +562,7 @@ function TerminalDeadlines({
       {deliverables.slice(0, 10).map((d) => {
         const rt = relLabel(parseISO(d.due_at), now);
         const dt = new Date(d.due_at);
-        const abs = `${pad(dt.getDate())} ${dt.toLocaleDateString(localeCode, { month: "short" }).toUpperCase()} · ${pad(dt.getHours())}:${pad(dt.getMinutes())}`;
+        const abs = `${pad(dt.getDate())} ${dt.toLocaleDateString(localeCode, { month: "short" }).toUpperCase().replace(/\./g, "")} · ${pad(dt.getHours())}:${pad(dt.getMinutes())}`;
         return (
           <div
             key={d.id}

@@ -50,7 +50,7 @@ function initials(name: string): string {
 }
 
 export function ZineDashboard() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const { data, isPending, error } = useDashboard();
   const settings = useAppSettings();
 
@@ -105,7 +105,8 @@ export function ZineDashboard() {
   ).length;
 
   const firstSlot = nextEvent ? relLabel(nextEvent.at, now) : null;
-  const dateStr = now.toLocaleDateString("en-GB", {
+  const localeCode = i18n.language === "de" ? "de-DE" : "en-GB";
+  const dateStr = now.toLocaleDateString(localeCode, {
     weekday: "short", day: "2-digit", month: "short", year: "numeric",
   }).toUpperCase();
 
@@ -404,6 +405,9 @@ function ZineWeek({
   monday: Date;
   now: Date;
 }) {
+  const { i18n } = useTranslation();
+  const localeCode = i18n.language === "de" ? "de-DE" : "en-GB";
+  const wkLabel = i18n.language === "de" ? "KW" : "WK";
   const hours = [8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18];
   const pxh = 48;
   const sH = 8;
@@ -425,8 +429,8 @@ function ZineWeek({
     d.setDate(monday.getDate() + (i - 1));
     return {
       i,
-      name: d.toLocaleDateString("en", { weekday: "short" }).toLowerCase(),
-      d: `${pad(d.getDate())} ${d.toLocaleDateString("en", { month: "short" }).toLowerCase()}`,
+      name: d.toLocaleDateString(localeCode, { weekday: "short" }).toLowerCase(),
+      d: `${pad(d.getDate())} ${d.toLocaleDateString(localeCode, { month: "short" }).toLowerCase()}`,
     };
   });
 
@@ -434,8 +438,8 @@ function ZineWeek({
     <div className="z-week">
       <div className="z-week-inner">
         <div className="z-whead z-corner">
-          <div className="z-dow">WK {pad(cw)}</div>
-          <div className="z-dn">{monday.toLocaleDateString("en", { month: "short" }).toUpperCase()}</div>
+          <div className="z-dow">{wkLabel} {pad(cw)}</div>
+          <div className="z-dn">{monday.toLocaleDateString(localeCode, { month: "short" }).toUpperCase()}</div>
         </div>
         {days.map((day) => (
           <div key={day.i} className={"z-whead" + (day.i === todayIdx ? " z-today" : "")}>
@@ -486,7 +490,8 @@ function ZineDeadlines({
   deliverables: { id: string; course_code: string; kind: string; name: string; due_at: string; status: string }[];
   now: Date;
 }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  const localeCode = i18n.language === "de" ? "de-DE" : "en-GB";
   const navigate = useNavigate();
   return (
     <div className="z-pnl">
@@ -500,7 +505,7 @@ function ZineDeadlines({
       {deliverables.slice(0, 10).map((d) => {
         const rt = relLabel(parseISO(d.due_at), now);
         const t = new Date(d.due_at);
-        const abs = `${pad(t.getDate())} ${t.toLocaleDateString("en-GB", { month: "short" }).toUpperCase()} · ${pad(t.getHours())}:${pad(t.getMinutes())}`;
+        const abs = `${pad(t.getDate())} ${t.toLocaleDateString(localeCode, { month: "short" }).toUpperCase()} · ${pad(t.getHours())}:${pad(t.getMinutes())}`;
         return (
           <div key={d.id} className="z-drow" onClick={() => navigate(`/courses/${d.course_code}`)}>
             <span className="z-stickerc" style={{ "--accent": cv(d.course_code) } as React.CSSProperties}>

@@ -485,7 +485,7 @@
     "noticeOfArrearsBefore": "vor den Vorlesungen dieser Woche hinterher.",
     "youStudyDashboard": "STUDY-DASHBOARD",
     "coursesRunstrip": "{{count}} KURSE",
-    "nextRunstrip": "NÄCHST →",
+    "nextRunstrip": "NÄCHSTES →",
     "tile": {
       "nextDeadline": "nächste Frist",
       "tasksOpen": "offene Aufgaben",
@@ -513,7 +513,7 @@
     "fallbackName": "nutzer",
     "sem": "SEM",
     "courses": "KURSE",
-    "next": "NÄCHST",
+    "next": "NÄCHSTES",
     "session": "SITZUNG",
     "phase": {
       "night": "NACHT",
@@ -566,7 +566,7 @@
       "noTasks": "KEINE AUFGABEN."
     },
     "courseCard": {
-      "next": "NÄCHST",
+      "next": "NÄCHSTES",
       "behind": "▲ {{n}} RÜCKSTAND"
     }
   },

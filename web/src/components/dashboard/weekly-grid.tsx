@@ -1,15 +1,10 @@
 import type { CSSProperties } from "react";
+import { useTranslation } from "react-i18next";
 import type { Slot, CourseCode } from "@/data/types";
 import { courseAccentVar } from "@/lib/theme";
 import { cn } from "@/lib/cn";
 
-const DAY_LABELS: { iso: 1 | 2 | 3 | 4 | 5; short: string; long: string }[] = [
-  { iso: 1, short: "Mon", long: "Monday" },
-  { iso: 2, short: "Tue", long: "Tuesday" },
-  { iso: 3, short: "Wed", long: "Wednesday" },
-  { iso: 4, short: "Thu", long: "Thursday" },
-  { iso: 5, short: "Fri", long: "Friday" },
-];
+const DAY_ISOS: (1 | 2 | 3 | 4 | 5)[] = [1, 2, 3, 4, 5];
 
 const START_HOUR = 8;
 const END_HOUR = 18;
@@ -38,6 +33,8 @@ export function WeeklyGrid({
   monday: Date;
   now: Date;
 }) {
+  const { i18n } = useTranslation();
+  const localeCode = i18n.language === "de" ? "de-DE" : "en-GB";
   const hours = Array.from({ length: END_HOUR - START_HOUR + 1 }, (_, i) => START_HOUR + i);
   const totalHeight = (END_HOUR - START_HOUR) * PX_PER_HOUR;
 
@@ -64,23 +61,23 @@ export function WeeklyGrid({
         {/* Corner */}
         <div className="flex flex-col gap-1 px-3 pt-3.5 pb-3 border-b border-border border-r border-hairline bg-surface-2">
           <span className="font-mono text-[10.5px] text-subtle tracking-[0.08em]">
-            CW {cw}
+            {i18n.language === "de" ? "KW" : "CW"} {cw}
           </span>
           <span className="font-mono text-[10.5px] text-muted">
-            {monday.toLocaleString("en", { month: "short" })}
+            {monday.toLocaleString(localeCode, { month: "short" })}
           </span>
         </div>
 
-        {DAY_LABELS.map((d, i) => {
-          const isToday = d.iso === todayWeekday;
+        {DAY_ISOS.map((iso, i) => {
+          const isToday = iso === todayWeekday;
           const date = new Date(monday);
           date.setDate(monday.getDate() + i);
           return (
             <div
-              key={d.iso}
+              key={iso}
               className={cn(
                 "relative flex flex-col gap-1 px-3 pt-3.5 pb-3 border-b border-border",
-                i < DAY_LABELS.length - 1 && "border-r border-hairline"
+                i < DAY_ISOS.length - 1 && "border-r border-hairline"
               )}
             >
               <span
@@ -90,11 +87,11 @@ export function WeeklyGrid({
                 )}
                 style={{ fontVariationSettings: '"opsz" 72, "SOFT" 30' }}
               >
-                {d.short}
+                {date.toLocaleDateString(localeCode, { weekday: "short" })}
               </span>
               <span className="font-mono text-[11px] text-muted tracking-[0.04em]">
                 {date.getDate().toString().padStart(2, "0")}{" "}
-                {date.toLocaleString("en", { month: "short" })}
+                {date.toLocaleString(localeCode, { month: "short" })}
               </span>
               {isToday && (
                 <>
@@ -130,15 +127,15 @@ export function WeeklyGrid({
         </div>
 
         {/* Day columns */}
-        {DAY_LABELS.map((d, i) => {
-          const isToday = d.iso === todayWeekday;
-          const daySlots = slots.filter((s) => s.weekday === d.iso);
+        {DAY_ISOS.map((iso, i) => {
+          const isToday = iso === todayWeekday;
+          const daySlots = slots.filter((s) => s.weekday === iso);
           return (
             <div
-              key={d.iso}
+              key={iso}
               className={cn(
                 "relative pb-4 pt-2 px-2",
-                i < DAY_LABELS.length - 1 && "border-r border-hairline",
+                i < DAY_ISOS.length - 1 && "border-r border-hairline",
                 isToday && "bg-[color-mix(in_oklch,var(--fg)_2.5%,var(--surface))]"
               )}
               style={{ minHeight: totalHeight + 8 }}

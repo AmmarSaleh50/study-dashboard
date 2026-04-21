@@ -38,11 +38,11 @@ A self-hostable personal study dashboard. Track your **courses, schedule, lectur
 
 Switch between all five in **Settings → Theme**. Each one is a full reskin of the dashboard, sidebar, and typography — not just a color palette.
 
-### Demo — Claude reading a lecture PDF from the app over MCP
+### Demo — Claude reading a lecture PDF straight out of study-dashboard
 
 ![Claude reading a lecture PDF over MCP](docs/demo-mcp.gif)
 
-Claude calls `list_course_files` to locate the PDF in the app's file store, then `read_course_file` — which renders each page to a PNG and streams it back as vision input. Claude answers questions about the lecture without you uploading anything.
+That's **claude.ai in the browser**, with the study-dashboard MCP server connected as a custom connector. No file was uploaded into the chat — Claude calls `list_course_files` to find the PDF **inside study-dashboard's own file store**, then `read_course_file` renders each page to a PNG and streams it back as vision input. Claude answers questions about the lecture while the PDF never leaves your self-hosted instance.
 
 ## How I use this
 
@@ -84,6 +84,8 @@ Before any of the day-to-day stuff, I had to get a semester's worth of courses, 
 **From then on it's incremental.** New lectures land on the LMS, I either drop the PDFs into the corresponding `Semester 4/<course>/` folder on my laptop (Claude Code picks them up and uploads) or drag-and-drop them straight into the app's **Files** view. If the `course.md` needs an update (new grading rule announced, exam date confirmed, topic added), Claude edits the markdown *and* pushes the change through the MCP (`update_course`, `update_exam`, etc.) so the dashboard and the source-of-truth stay aligned.
 
 ### A typical week
+
+**During the lecture itself.** The prof introduces a topic I want more depth on without losing the thread of where the lecture is. I open Claude on my phone: *"I'm in ASB VL 4, slide 12 on the pumping lemma — expand on the intuition for why it works, complement what the prof is saying with more detail."* Claude calls `list_course_files`, finds the ASB VL 4 slides, uses `read_course_file` to fetch *just page 12*, reads the prof's actual definition, and explains from there — in sync with what I'm actually seeing on the projector.
 
 **Right after a lecture.** Walking out of class, I open Claude on my phone: *"We just finished VL 4 of ASB, covered pumping lemma, closure properties, and non-regularity of aⁿbⁿ."* Claude creates the lecture #4, adds the study topics with proper descriptions linked to lecture #4, marks it attended. couple of seconds. The dashboard is caught up.
 
@@ -269,30 +271,30 @@ Ein self-hostbares, persönliches Studien-Dashboard. Behalte deine **Kurse, dein
     <td align="center"><strong>Zine</strong><br/><sub>Pastell-Creme + handgemachte Sticker</sub></td>
   </tr>
   <tr>
-    <td><img src="docs/screenshots/theme-classic.png" alt="Klassisches Theme" /></td>
-    <td><img src="docs/screenshots/theme-zine.png" alt="Zine-Theme" /></td>
+    <td><img src="docs/screenshots/theme-classic-de.png" alt="Klassisches Theme" /></td>
+    <td><img src="docs/screenshots/theme-zine-de.png" alt="Zine-Theme" /></td>
   </tr>
   <tr>
     <td align="center"><strong>Bibliothek</strong><br/><sub>Creme-Papier + Sepia, Karteikasten-Ästhetik</sub></td>
     <td align="center"><strong>Swiss</strong><br/><sub>12-Spalten-Raster + rot akzentuiert, Helvetica-Ära</sub></td>
   </tr>
   <tr>
-    <td><img src="docs/screenshots/theme-library.png" alt="Bibliothek-Theme" /></td>
-    <td><img src="docs/screenshots/theme-swiss.png" alt="Swiss-Theme" /></td>
+    <td><img src="docs/screenshots/theme-library-de.png" alt="Bibliothek-Theme" /></td>
+    <td><img src="docs/screenshots/theme-swiss-de.png" alt="Swiss-Theme" /></td>
   </tr>
 </table>
 
 **Terminal** — Monospace überall, Türkis auf Schwarz, Hacker-Cockpit:
 
-![Terminal-Theme](docs/screenshots/theme-terminal.gif)
+![Terminal-Theme](docs/screenshots/theme-terminal-de.gif)
 
 Unter **Einstellungen → Theme** zwischen allen fünf wechseln. Jedes ist ein vollständiger Reskin von Dashboard, Sidebar und Typografie — nicht bloss eine andere Farbpalette.
 
-### Demo — Claude liest ein Vorlesungs-PDF direkt aus der App über MCP
+### Demo — Claude liest ein Vorlesungs-PDF direkt aus study-dashboard
 
 ![Claude reading a lecture PDF over MCP](docs/demo-mcp.gif)
 
-Claude ruft `list_course_files` auf, um das PDF im Dateispeicher der App zu finden, dann `read_course_file` — das rendert jede Seite als PNG und schickt sie als Vision-Input zurück. Claude beantwortet Fragen zur Vorlesung, ohne dass du irgendetwas manuell hochladen musst.
+Das ist **claude.ai im Browser**, mit dem study-dashboard-MCP-Server als Custom Connector angebunden. Es wurde nichts in den Chat hochgeladen — Claude ruft `list_course_files` auf, um das PDF **im Dateispeicher von study-dashboard selbst** zu finden, dann rendert `read_course_file` jede Seite als PNG und schickt sie als Vision-Input zurück. Claude beantwortet Fragen zur Vorlesung, ohne dass das PDF je deine selbst gehostete Instanz verlässt.
 
 ## Wie ich das benutze
 
@@ -334,6 +336,8 @@ Bevor der Alltag losgeht, musste ich erst mal ein ganzes Semester an Kursen, Stu
 **Ab da läuft es inkrementell weiter.** Neue Vorlesungen landen auf dem LMS *(Moodle)*, ich lege die PDFs entweder in den passenden `Semester 4/<kurs>/`-Ordner auf dem Laptop (Claude Code zieht sie rauf) oder schiebe sie direkt per Drag-and-Drop in die **Files**-Ansicht. Wenn die `course.md` ein Update braucht (neue Bewertungsregel, fixer Klausurtermin, neues Thema), bearbeitet Claude das Markdown *und* schickt die Änderung über MCP durch (`update_course`, `update_exam` usw.), damit Dashboard und Source of Truth synchron bleiben.
 
 ### Eine typische Woche
+
+**Während der Vorlesung selbst.** Der Prof führt ein Thema ein, bei dem ich mehr Tiefe will, ohne den Faden der Vorlesung zu verlieren. Ich öffne Claude auf dem Handy: *„Ich bin gerade in ASB VL 4, Folie 12 zum Pumping-Lemma — vertief die Intuition dahinter, ergänze, was der Prof gerade sagt, mit mehr Details."* Claude ruft `list_course_files` auf, findet die ASB-VL-4-Folien, holt mit `read_course_file` *genau Seite 12*, liest die eigentliche Definition des Profs und erklärt von dort aus — synchron mit dem, was gerade auf dem Beamer steht.
 
 **Direkt nach der Vorlesung.** Auf dem Weg aus dem Hörsaal öffne ich Claude auf dem Handy: *„Wir haben gerade VL 4 von ASB beendet, es ging um das Pumping-Lemma, Abschlusseigenschaften und die Nicht-Regularität von aⁿbⁿ."* Claude legt die Vorlesung #4 an, erzeugt die Lernthemen mit ordentlichen Beschreibungen verknüpft mit Vorlesung #4 und markiert sie als besucht. Ein paar Sekunden. Das Dashboard ist up-to-date.
 

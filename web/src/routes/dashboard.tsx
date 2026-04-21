@@ -281,11 +281,13 @@ function EditorialDashboard() {
 }
 
 function DashboardTopStrip({ now }: { now: Date }) {
+  const { i18n } = useTranslation();
+  const localeCode = i18n.language === "de" ? "de-DE" : "en-GB";
   const settings = useAppSettings();
   const semesterLabel = settings.data?.semester_label?.trim() || null;
   const semesterWeek = computeSemesterWeek(now, settings.data?.semester_start);
-  const wd = now.toLocaleDateString("en", { weekday: "short" });
-  const dm = `${now.getDate()} ${now.toLocaleDateString("en", { month: "short" })}`;
+  const wd = now.toLocaleDateString(localeCode, { weekday: "short" });
+  const dm = `${now.getDate()} ${now.toLocaleDateString(localeCode, { month: "short" })}`;
 
   const items: { key: string; node: React.ReactNode }[] = [
     { key: "wd", node: <span className="text-fg font-medium">{wd}</span> },
