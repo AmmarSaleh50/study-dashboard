@@ -20,10 +20,14 @@
 }
 
 :80 {
-    # Compression preference order: zstd → brotli → gzip. Brotli typically
-    # shaves 15-25% off gzip on text payloads (HTML/JS/CSS); zstd is even
-    # better when supported. All three are negotiated via Accept-Encoding.
-    encode zstd br gzip
+    # Compression preference order: zstd → gzip. The official caddy:2-alpine
+    # image doesn't ship with the brotli plugin, so `br` is omitted here —
+    # zstd already beats brotli on most text payloads when the client supports
+    # it (modern browsers do), and gzip is the universal fallback. To add
+    # brotli you'd need a custom caddy image with `xcaddy build … --with
+    # github.com/dunglas/caddy-cbrotli` — not worth the extra layer for the
+    # marginal gain over zstd.
+    encode zstd gzip
 
     # Some MCP clients (Claude.ai's connector being the painful one) POST
     # to /mcp without the trailing slash, drop the Authorization header
