@@ -45,20 +45,50 @@
     <meta name="twitter:image" content="%VITE_SITE_URL%/og-card.png" />
     <meta name="twitter:image:alt" content="%VITE_SITE_NAME% wordmark" />
 
-    <!-- schema.org -->
+    <!-- hreflang — sitemap has them too, but Google prefers seeing them in
+         HTML head as well. Helps en/de targeting. -->
+    <link rel="alternate" hreflang="en" href="%VITE_SITE_URL%/" />
+    <link rel="alternate" hreflang="de" href="%VITE_SITE_URL%/de" />
+    <link rel="alternate" hreflang="x-default" href="%VITE_SITE_URL%/" />
+
+    <!-- schema.org — @graph lets us declare both Organization and the
+         SoftwareApplication as linked entities, so Google can attach the
+         GitHub link / logo to a single org profile. -->
     <script type="application/ld+json">
       {
         "@context": "https://schema.org",
-        "@type": "SoftwareApplication",
-        "name": "%VITE_SITE_NAME%",
-        "url": "%VITE_SITE_URL%/",
-        "description": "Self-hostable personal study dashboard with a built-in Model Context Protocol server for Claude.",
-        "image": "%VITE_SITE_URL%/og-card.png",
-        "applicationCategory": "EducationalApplication",
-        "operatingSystem": "Web, iOS, Android",
-        "license": "https://opensource.org/licenses/MIT",
-        "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
-        "inLanguage": ["en", "de"]
+        "@graph": [
+          {
+            "@type": "Organization",
+            "@id": "%VITE_SITE_URL%/#organization",
+            "name": "%VITE_SITE_NAME%",
+            "url": "%VITE_SITE_URL%/",
+            "logo": "%VITE_SITE_URL%/icon-512.png",
+            "sameAs": ["https://github.com/openstudy-dev/OpenStudy"]
+          },
+          {
+            "@type": "SoftwareApplication",
+            "@id": "%VITE_SITE_URL%/#app",
+            "name": "%VITE_SITE_NAME%",
+            "url": "%VITE_SITE_URL%/",
+            "description": "Self-hostable personal study dashboard with a built-in Model Context Protocol server for Claude.",
+            "image": "%VITE_SITE_URL%/og-card.png",
+            "applicationCategory": "EducationalApplication",
+            "applicationSubCategory": "ProductivityApplication",
+            "operatingSystem": "Web, iOS, Android",
+            "license": "https://opensource.org/licenses/MIT",
+            "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+            "inLanguage": ["en", "de"],
+            "publisher": { "@id": "%VITE_SITE_URL%/#organization" },
+            "sameAs": ["https://github.com/openstudy-dev/OpenStudy"],
+            "screenshot": [
+              "%VITE_SITE_URL%/screenshots/theme-classic.png",
+              "%VITE_SITE_URL%/screenshots/theme-zine.png",
+              "%VITE_SITE_URL%/screenshots/theme-library.png",
+              "%VITE_SITE_URL%/screenshots/theme-swiss.png"
+            ]
+          }
+        ]
       }
     </script>
 

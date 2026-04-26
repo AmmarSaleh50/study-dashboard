@@ -20,7 +20,10 @@
 }
 
 :80 {
-    encode gzip
+    # Compression preference order: zstd → brotli → gzip. Brotli typically
+    # shaves 15-25% off gzip on text payloads (HTML/JS/CSS); zstd is even
+    # better when supported. All three are negotiated via Accept-Encoding.
+    encode zstd br gzip
 
     # Some MCP clients (Claude.ai's connector being the painful one) POST
     # to /mcp without the trailing slash, drop the Authorization header
