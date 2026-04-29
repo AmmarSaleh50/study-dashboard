@@ -1,54 +1,78 @@
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import List, Optional
 
-from ..db import client
+from .. import db
 from ..schemas import Deliverable, DeliverableCreate, DeliverablePatch
 from ._helpers import model_dump_clean
 
 
-def list_deliverables(
+async def list_deliverables(
     course_code: Optional[str] = None,
     status: Optional[str] = None,
     due_before: Optional[datetime] = None,
 ) -> List[Deliverable]:
-    q = client().table("deliverables").select("*").order("due_at")
+    where: list[str] = []
+    args: list = []
     if course_code:
-        q = q.eq("course_code", course_code)
+        where.append("course_code = %s")
+        args.append(course_code)
     if status:
-        q = q.eq("status", status)
+        where.append("status = %s")
+        args.append(status)
     if due_before:
-        q = q.lte("due_at", due_before.isoformat())
-    resp = q.execute()
-    return [Deliverable.model_validate(r) for r in resp.data or []]
+        where.append("due_at <= %s")
+        args.append(due_before)
+    sql = "SELECT * FROM deliverables"
+    if where:
+        sql += " WHERE " + " AND ".join(where)
+    sql += " ORDER BY due_at"
+    rows = await db.fetch(sql, *args)
+    return [Deliverable.model_validate(r) for r in rows]
 
 
-def create_deliverable(payload: DeliverableCreate) -> Deliverable:
-    resp = client().table("deliverables").insert(model_dump_clean(payload)).execute()
-    return Deliverable.model_validate(resp.data[0])
+async def create_deliverable(payload: DeliverableCreate) -> Deliverable:
+    data = model_dump_clean(payload)
+    cols = list(data.keys())
+    placeholders = ", ".join(["%s"] * len(cols))
+    row = await db.fetchrow(
+        f"INSERT INTO deliverables ({', '.join(cols)}) "
+        f"VALUES ({placeholders}) RETURNING *",
+        *[data[c] for c in cols],
+    )
+    if row is None:
+        raise ValueError(f"failed to create deliverable for {payload.course_code}")
+    return Deliverable.model_validate(row)
 
 
-def update_deliverable(deliverable_id: str, patch: DeliverablePatch) -> Deliverable:
+async def update_deliverable(deliverable_id: str, patch: DeliverablePatch) -> Deliverable:
     data = model_dump_clean(patch)
     if not data:
         raise ValueError("empty patch")
-    resp = (
-        client().table("deliverables").update(data).eq("id", deliverable_id).execute()
+    cols = list(data.keys())
+    set_clause = ", ".join(f"{c} = %s" for c in cols)
+    row = await db.fetchrow(
+        f"UPDATE deliverables SET {set_clause} WHERE id = %s RETURNING *",
+        *[data[c] for c in cols], deliverable_id,
     )
-    if not resp.data:
+    if row is None:
         raise ValueError(f"deliverable {deliverable_id} not found")
-    return Deliverable.model_validate(resp.data[0])
+    return Deliverable.model_validate(row)
 
 
-def mark_submitted(deliverable_id: str) -> Deliverable:
-    return update_deliverable(deliverable_id, DeliverablePatch(status="submitted"))
+async def mark_submitted(deliverable_id: str) -> Deliverable:
+    return await update_deliverable(
+        deliverable_id, DeliverablePatch(status="submitted")
+    )
 
 
-def reopen_deliverable(deliverable_id: str) -> Deliverable:
-    return update_deliverable(deliverable_id, DeliverablePatch(status="open"))
+async def reopen_deliverable(deliverable_id: str) -> Deliverable:
+    return await update_deliverable(
+        deliverable_id, DeliverablePatch(status="open")
+    )
 
 
-def delete_deliverable(deliverable_id: str) -> None:
-    client().table("deliverables").delete().eq("id", deliverable_id).execute()
+async def delete_deliverable(deliverable_id: str) -> None:
+    await db.execute("DELETE FROM deliverables WHERE id = %s", deliverable_id)
 
 
 __all__ = [
@@ -59,7 +83,3 @@ __all__ = [
     "reopen_deliverable",
     "delete_deliverable",
 ]
-
-
-# Keep alias symbol used but silence unused import warning
-_ = timezone
