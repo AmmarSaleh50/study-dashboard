@@ -157,8 +157,10 @@ fi
 
 # ── roll forward ─────────────────────────────────────────────────────────────
 
-log "starting postgrest + new openstudy + recreating frontend..."
-$COMPOSE up -d postgrest openstudy
+log "starting new openstudy + recreating frontend..."
+# --remove-orphans cleans up the openstudy-postgrest container left over
+# from before Batch C1 retired PostgREST.
+$COMPOSE up -d --remove-orphans openstudy
 # Force-recreate frontend so it picks up its newly built image — without
 # this, the running frontend container keeps serving the previous build
 # even though `compose build` just produced a fresh image.
