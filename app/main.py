@@ -1,6 +1,7 @@
 import logging
+import tomllib
 from contextlib import asynccontextmanager
-from importlib.metadata import PackageNotFoundError, version as _pkg_version
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -10,11 +11,19 @@ from . import db as db_module
 from .config import get_settings
 
 # Single source of truth for the running app's version: pyproject.toml.
-# Falls back to "0.0.0" when running uninstalled (e.g. ad-hoc scripts).
-try:
-    APP_VERSION = _pkg_version("openstudy-api")
-except PackageNotFoundError:
-    APP_VERSION = "0.0.0"
+# Read directly rather than via importlib.metadata because uv's project
+# install in the Docker image doesn't always populate metadata, and the
+# pyproject.toml is copied into /app at build time anyway.
+def _read_version() -> str:
+    try:
+        pyproject = Path(__file__).resolve().parent.parent / "pyproject.toml"
+        with open(pyproject, "rb") as f:
+            return tomllib.load(f)["project"]["version"]
+    except Exception:
+        return "0.0.0"
+
+
+APP_VERSION = _read_version()
 
 # httpx logs every outbound request URL at INFO ("HTTP Request: POST <url>"),
 # which leaked the Telegram bot token and n8n webhook path into docker logs
