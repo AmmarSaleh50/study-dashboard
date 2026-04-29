@@ -22,7 +22,10 @@ class Settings(BaseSettings):
 
     # Auth
     app_password_hash: str = Field(default="")
-    session_secret: str = Field(default="dev-only-change-me")
+    # No default — production deploys must set SESSION_SECRET. The setter
+    # below raises if it's left empty so we fail-closed instead of signing
+    # cookies with a publicly-known string.
+    session_secret: str = Field(default="")
     session_ttl_days: int = 30
 
     # Public origin (scheme+host, no trailing slash) — required for OAuth/MCP URLs.
@@ -39,6 +42,15 @@ class Settings(BaseSettings):
     @property
     def cors_origins_list(self) -> List[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        if not self.session_secret or self.session_secret == "dev-only-change-me":
+            raise RuntimeError(
+                "SESSION_SECRET is unset or still the placeholder. "
+                "Generate one with: python -c 'import secrets; "
+                "print(secrets.token_urlsafe(48))'"
+            )
 
 
 @lru_cache
