@@ -1,6 +1,7 @@
 from typing import List
 from .. import db
 from ..schemas import Course, CourseCreate, CoursePatch
+from ._helpers import validated_cols
 
 
 async def list_courses() -> List[Course]:
@@ -18,7 +19,7 @@ async def get_course(code: str) -> Course | None:
 
 async def create_course(body: CourseCreate) -> Course:
     data = body.model_dump(mode="json", exclude_none=True)
-    cols = list(data.keys())
+    cols = validated_cols(CourseCreate, data)
     placeholders = ", ".join(["%s"] * len(cols))
     row = await db.fetchrow(
         f"INSERT INTO courses ({', '.join(cols)}) "
@@ -37,7 +38,7 @@ async def update_course(code: str, patch: CoursePatch) -> Course:
         if not course:
             raise ValueError(f"course {code} not found")
         return course
-    cols = list(data.keys())
+    cols = validated_cols(CoursePatch, data)
     set_clause = ", ".join(f"{c} = %s" for c in cols)
     row = await db.fetchrow(
         f"UPDATE courses SET {set_clause} WHERE code = %s RETURNING *",
