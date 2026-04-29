@@ -2,7 +2,7 @@ from typing import List
 
 from .. import db
 from ..schemas import Exam, ExamPatch
-from ._helpers import model_dump_clean
+from ._helpers import model_dump_clean, validated_cols
 
 
 async def list_exams() -> List[Exam]:
@@ -41,7 +41,7 @@ async def update_exam(course_code: str, patch: ExamPatch) -> Exam:
             raise ValueError(f"failed to upsert exam for {course_code}")
         return Exam.model_validate(row)
 
-    cols = list(data.keys())
+    cols = validated_cols(ExamPatch, data)
     insert_cols = ["course_code", *cols]
     insert_placeholders = ", ".join(["%s"] * len(insert_cols))
     update_set = ", ".join(f"{c} = EXCLUDED.{c}" for c in cols)
