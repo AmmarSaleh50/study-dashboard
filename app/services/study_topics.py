@@ -61,13 +61,17 @@ async def delete_study_topic(topic_id: str) -> None:
 
 
 async def add_lecture_topics(payload: LectureTopicsAdd) -> List[StudyTopic]:
-    # Resolve/create the lecture if needed
-    lecture_id = payload.lecture_id
-    if payload.create_lecture and not lecture_id:
-        from . import lectures as lectures_svc
-        lec = await lectures_svc.create_lecture(payload.create_lecture)
-        lecture_id = lec.id
-    rows: list[dict] = []
+    """Atomically create-lecture-and-insert-topics, OR insert-topics-only.
+
+    The optional lecture creation + every topic insert run inside a single
+    psycopg transaction (one connection, implicit BEGIN at first execute,
+    COMMIT on clean exit, ROLLBACK on exception). Without this, a topic
+    insert failing mid-loop would leave the lecture row + earlier topics
+    committed — partial writes the caller has no clean way to recover from.
+    """
+    # Build all the topic rows up front so we don't go to the DB for nothing
+    # if the payload is malformed.
+    topic_rows: list[dict] = []
     for idx, t in enumerate(payload.topics):
         row = {
             "course_code": payload.course_code,
@@ -76,29 +80,56 @@ async def add_lecture_topics(payload: LectureTopicsAdd) -> List[StudyTopic]:
             "description": t.get("description"),
             "kind": payload.kind,
             "covered_on": payload.covered_on.isoformat(),
-            "lecture_id": lecture_id,
+            # `lecture_id` is filled in below — may be None until we know it.
+            "lecture_id": payload.lecture_id,
             "status": t.get("status", "not_started"),
             "confidence": t.get("confidence"),
             "notes": t.get("notes"),
             "sort_order": t.get("sort_order", idx),
         }
-        rows.append({k: v for k, v in row.items() if v is not None})
-    # Each row may have a different column set (sparse — None values dropped),
-    # so we INSERT row-by-row instead of executemany (which needs fixed columns).
-    # At OpenStudy's scale (a lecture has ~3-10 topics), this is fine.
+        topic_rows.append({k: v for k, v in row.items() if v is not None})
+
     inserted: list[StudyTopic] = []
-    for row in rows:
-        cols = list(row.keys())
-        placeholders = ", ".join(["%s"] * len(cols))
-        inserted_row = await db.fetchrow(
-            f"INSERT INTO study_topics ({', '.join(cols)}) "
-            f"VALUES ({placeholders}) RETURNING *",
-            *[row[c] for c in cols],
-        )
-        if inserted_row is None:
-            raise ValueError(
-                f"failed to insert study topic '{row.get('name')}' for "
-                f"{payload.course_code}"
+    async with db.db() as conn, conn.cursor() as cur:
+        # 1. Resolve/create the lecture in this transaction. We inline the
+        #    INSERT (rather than calling `lectures_svc.create_lecture`)
+        #    because that helper opens its own pool connection — using it
+        #    here would commit mid-flow and break atomicity.
+        lecture_id = payload.lecture_id
+        if payload.create_lecture and not lecture_id:
+            lec_data = model_dump_clean(payload.create_lecture)
+            lec_cols = list(lec_data.keys())
+            lec_placeholders = ", ".join(["%s"] * len(lec_cols))
+            await cur.execute(
+                f"INSERT INTO lectures ({', '.join(lec_cols)}) "
+                f"VALUES ({lec_placeholders}) RETURNING id",
+                [lec_data[c] for c in lec_cols],
             )
-        inserted.append(StudyTopic.model_validate(inserted_row))
+            lec_row = await cur.fetchone()
+            if lec_row is None:
+                raise ValueError("failed to create lecture")
+            lecture_id = lec_row["id"]
+            # Backfill lecture_id into each topic row
+            for r in topic_rows:
+                r["lecture_id"] = lecture_id
+
+        # 2. Insert topics. Each row may have a different column set
+        #    (sparse — None values dropped), so we INSERT row-by-row instead
+        #    of executemany (which needs fixed columns). All inserts share
+        #    this transaction.
+        for row in topic_rows:
+            cols = list(row.keys())
+            placeholders = ", ".join(["%s"] * len(cols))
+            await cur.execute(
+                f"INSERT INTO study_topics ({', '.join(cols)}) "
+                f"VALUES ({placeholders}) RETURNING *",
+                [row[c] for c in cols],
+            )
+            inserted_row = await cur.fetchone()
+            if inserted_row is None:
+                raise ValueError(
+                    f"failed to insert study topic '{row.get('name')}' for "
+                    f"{payload.course_code}"
+                )
+            inserted.append(StudyTopic.model_validate(inserted_row))
     return inserted

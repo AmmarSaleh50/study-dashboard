@@ -14,6 +14,9 @@ import os
 from contextlib import asynccontextmanager
 from typing import Any
 
+import uuid as _uuid
+
+from psycopg import pq
 from psycopg.adapt import Loader
 from psycopg.rows import dict_row
 from psycopg_pool import AsyncConnectionPool
@@ -24,33 +27,52 @@ from psycopg_pool import AsyncConnectionPool
 _pool: AsyncConnectionPool | None = None
 
 
-class _StrUUIDLoader(Loader):
-    """Load Postgres `uuid` columns as Python `str` instead of `uuid.UUID`.
+class _StrUUIDLoaderText(Loader):
+    """Load Postgres `uuid` text-protocol columns as Python `str`.
 
     Pydantic v2 strict mode rejects `uuid.UUID` for fields typed `str`, and
     every entity in OpenStudy has a uuid PK typed `str` in the schemas
     (`Slot.id`, `Lecture.id`, `Task.id`, …). Stringifying at the driver
     level avoids needing a `_row_to_X()` coercer in every service.
 
-    Postgres returns UUID values as canonical text (e.g.
-    `b'a1b2c3d4-e5f6-...'`) so we just decode bytes → str. No parsing
-    cost, no dependency on python-uuid.
+    Postgres's text protocol delivers UUIDs as canonical 36-char text
+    (`b'a1b2c3d4-e5f6-...'`); we just decode bytes → str.
     """
 
+    format = pq.Format.TEXT
+
     def load(self, data):
-        # psycopg's binary protocol gives us a memoryview; text protocol
-        # gives bytes. Either way, the canonical UUID text is what we want.
         if isinstance(data, memoryview):
             data = bytes(data)
-        if isinstance(data, bytes):
-            return data.decode()
-        return data
+        return data.decode() if isinstance(data, bytes) else data
+
+
+class _StrUUIDLoaderBinary(Loader):
+    """Load Postgres `uuid` binary-protocol columns as Python `str`.
+
+    Twin of `_StrUUIDLoaderText`. Binary protocol delivers UUIDs as 16 raw
+    bytes — we wrap with `uuid.UUID(bytes=…)` to get the canonical text,
+    then `str()` to match the text-loader's output. Without this, psycopg
+    falls back to its built-in `UUIDBinaryLoader` which returns
+    `uuid.UUID`, and Pydantic strict-mode rejects that for `str` fields.
+    """
+
+    format = pq.Format.BINARY
+
+    def load(self, data):
+        if isinstance(data, memoryview):
+            data = bytes(data)
+        return str(_uuid.UUID(bytes=data))
 
 
 async def _configure_connection(conn) -> None:
     """Per-connection adapter setup. Runs once on every freshly-opened
-    connection in the pool (psycopg's `configure=` callback)."""
-    conn.adapters.register_loader("uuid", _StrUUIDLoader)
+    connection in the pool (psycopg's `configure=` callback). We register
+    BOTH text and binary loaders so the loader runs regardless of the
+    cursor's protocol — defensive against psycopg's choice changing under
+    us between cursor instantiations or driver versions."""
+    conn.adapters.register_loader("uuid", _StrUUIDLoaderText)
+    conn.adapters.register_loader("uuid", _StrUUIDLoaderBinary)
 
 
 def _build_dsn() -> str:

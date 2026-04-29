@@ -7,6 +7,7 @@ run server-side in one round-trip.
 """
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import logging
@@ -108,7 +109,11 @@ async def index_all() -> dict[str, Any]:
         if existing.get(path) == sha:
             skipped += 1
             continue
-        text = _extract_text(path, data)
+        # _extract_text is CPU-bound (PDF parsing via pymupdf can take
+        # hundreds of ms per page). Run it on the threadpool so a
+        # large reindex doesn't block the asyncio event loop and stall
+        # every other request — health check, dashboard, MCP, OAuth.
+        text = await asyncio.to_thread(_extract_text, path, data)
         if text is None:
             failed += 1
             continue
