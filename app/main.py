@@ -1,5 +1,6 @@
 import logging
 from contextlib import asynccontextmanager
+from importlib.metadata import PackageNotFoundError, version as _pkg_version
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -7,6 +8,13 @@ from fastapi.responses import JSONResponse
 
 from . import db as db_module
 from .config import get_settings
+
+# Single source of truth for the running app's version: pyproject.toml.
+# Falls back to "0.0.0" when running uninstalled (e.g. ad-hoc scripts).
+try:
+    APP_VERSION = _pkg_version("openstudy-api")
+except PackageNotFoundError:
+    APP_VERSION = "0.0.0"
 
 # httpx logs every outbound request URL at INFO ("HTTP Request: POST <url>"),
 # which leaked the Telegram bot token and n8n webhook path into docker logs
@@ -61,7 +69,7 @@ def create_app() -> FastAPI:
     # via EXPOSE_DOCS=true in .env when working locally.
     app = FastAPI(
         title="OpenStudy API",
-        version="0.1.0",
+        version=APP_VERSION,
         docs_url="/api/docs" if settings.expose_docs else None,
         redoc_url=None,
         openapi_url="/api/openapi.json" if settings.expose_docs else None,
@@ -83,7 +91,7 @@ def create_app() -> FastAPI:
     async def health() -> JSONResponse:
         from .services import storage as storage_svc
 
-        out: dict = {"ok": True, "version": "0.5.0"}
+        out: dict = {"ok": True, "version": APP_VERSION}
         # DB check: trivial round-trip through the async pool. Uses
         # `SELECT 1` rather than a real table read so it stays cheap and
         # doesn't depend on any specific schema state.
