@@ -11,9 +11,15 @@ without a second stat.
 Every operation emits an `events` row so the Activity page shows
 everything that touches the course tree (MCP tool calls, web uploads,
 periodic syncs).
+
+All public functions are `async def`. Filesystem I/O is offloaded via
+`asyncio.to_thread()` so we don't block the event loop on disk reads
+or writes; `_log()` writes to Postgres through the async pool.
 """
 from __future__ import annotations
 
+import asyncio
+import json
 import logging
 import mimetypes
 import os
@@ -22,6 +28,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote
+
+from .. import db
 
 log = logging.getLogger(__name__)
 
@@ -58,14 +66,15 @@ def _course_code_from_path(p: str | None) -> str | None:
     return None
 
 
-def _log(kind: str, payload: dict[str, Any]) -> None:
-    """Best-effort event log. Lazy import of db to avoid circular imports
-    and to never break a storage op when the DB is having a moment.
+async def _log(kind: str, payload: dict[str, Any]) -> None:
+    """Best-effort event log. Never breaks a storage op when the DB is
+    having a moment — exceptions are swallowed.
 
     Extracts course_code from the payload's first path-shaped value (path,
     prefix, source, or first of paths[]). The events table has a
     course_code column that's been silently NULL for every storage event
-    since v0.5.0 — fixed here so the activity log can filter by course."""
+    since v0.5.0 — fixed in Batch A so the activity log can filter by
+    course."""
     # Find the first path-shaped value in the payload to derive course_code.
     candidate: str | None = None
     for key in ("path", "prefix", "source", "destination", "from", "to"):
@@ -76,15 +85,21 @@ def _log(kind: str, payload: dict[str, Any]) -> None:
         first_path = payload["paths"][0]
         if isinstance(first_path, str):
             candidate = first_path
+    course_code = _course_code_from_path(candidate)
 
+    payload_json = json.dumps(payload)
     try:
-        from ..db import client
-
-        row: dict[str, Any] = {"kind": kind, "payload": payload}
-        course_code = _course_code_from_path(candidate)
         if course_code:
-            row["course_code"] = course_code
-        client().table("events").insert(row).execute()
+            await db.execute(
+                "INSERT INTO events (kind, course_code, payload) "
+                "VALUES (%s, %s, %s::jsonb)",
+                kind, course_code, payload_json,
+            )
+        else:
+            await db.execute(
+                "INSERT INTO events (kind, payload) VALUES (%s, %s::jsonb)",
+                kind, payload_json,
+            )
     except Exception:
         pass
 
@@ -93,17 +108,12 @@ def _mtime_iso(p: Path) -> str:
     return datetime.fromtimestamp(p.stat().st_mtime, tz=timezone.utc).isoformat()
 
 
-# ── Read ─────────────────────────────────────────────────────────────────────
+# ── sync helpers ─────────────────────────────────────────────────────────────
+# Internal blocking implementations. The async public functions wrap these
+# in `asyncio.to_thread()` so the event loop stays free for other work.
 
 
-def list_files(prefix: str = "", *, limit: int = 200) -> list[dict[str, Any]]:
-    """List entries (folders + files) at the given prefix. Non-recursive.
-
-    Each entry: `{name, id, updated_at, metadata: {size, mimetype}}`.
-    Folders are returned with `id=None` and `metadata=None` so the caller
-    can distinguish them from files without an extra stat call. Dotfiles
-    (anything starting with `.`) are filtered out of listings.
-    """
+def _list_files_sync(prefix: str, limit: int) -> list[dict[str, Any]]:
     try:
         base = _safe_resolve(prefix)
     except ValueError:
@@ -139,14 +149,10 @@ def list_files(prefix: str = "", *, limit: int = 200) -> list[dict[str, Any]]:
                     "mimetype": mime or "application/octet-stream",
                 },
             })
-
-    _log("storage:list", {"prefix": prefix, "count": len(out)})
     return out
 
 
-def list_recursive(prefix: str) -> list[str]:
-    """Return every file path (relative to STUDY_ROOT) under `prefix`,
-    descending into subfolders. Skips dotfiles."""
+def _list_recursive_sync(prefix: str) -> list[str]:
     try:
         base = _safe_resolve(prefix)
     except ValueError:
@@ -162,25 +168,21 @@ def list_recursive(prefix: str) -> list[str]:
     return out
 
 
-def download(path: str) -> bytes:
-    """Return raw bytes of a file."""
+def _download_sync(path: str) -> bytes:
     target = _safe_resolve(path)
     if not target.is_file():
         raise FileNotFoundError(f"not found: {path}")
-    data = target.read_bytes()
-    _log("storage:read", {"path": path, "size": len(data)})
-    return data
+    return target.read_bytes()
 
 
-def exists(path: str) -> bool:
+def _exists_sync(path: str) -> bool:
     try:
         return _safe_resolve(path).is_file()
     except ValueError:
         return False
 
 
-def stat(path: str) -> dict[str, Any] | None:
-    """Return file metadata or None if the path doesn't exist."""
+def _stat_sync(path: str) -> dict[str, Any] | None:
     try:
         target = _safe_resolve(path)
     except ValueError:
@@ -196,11 +198,7 @@ def stat(path: str) -> dict[str, Any] | None:
     }
 
 
-# ── Write ────────────────────────────────────────────────────────────────────
-
-
-def upload(path: str, data: bytes, content_type: str = "application/octet-stream") -> dict[str, Any]:
-    """Write (or overwrite) a file. Atomic via tmp+rename within the same dir."""
+def _upload_sync(path: str, data: bytes) -> None:
     target = _safe_resolve(path)
     target.parent.mkdir(parents=True, exist_ok=True)
     tmp = target.with_suffix(target.suffix + f".tmp-{os.getpid()}")
@@ -213,12 +211,9 @@ def upload(path: str, data: bytes, content_type: str = "application/octet-stream
                 tmp.unlink()
             except OSError:
                 pass
-    _log("storage:upload", {"path": path, "size": len(data), "content_type": content_type})
-    return {"path": path, "size": len(data), "content_type": content_type}
 
 
-def delete(paths: list[str]) -> dict[str, Any]:
-    """Delete one or more files. Missing paths are silently OK (idempotent)."""
+def _delete_sync(paths: list[str]) -> list[str]:
     deleted: list[str] = []
     for p in paths:
         try:
@@ -239,11 +234,74 @@ def delete(paths: list[str]) -> dict[str, Any]:
                 deleted.append(p)
             except OSError:
                 pass
-    _log("storage:delete", {"paths": paths, "count": len(deleted)})
+    return deleted
+
+
+def _move_sync(source: str, destination: str) -> None:
+    src = _safe_resolve(source)
+    dst = _safe_resolve(destination)
+    if not src.exists():
+        raise FileNotFoundError(f"source not found: {source}")
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    shutil.move(str(src), str(dst))
+
+
+# ── Read ─────────────────────────────────────────────────────────────────────
+
+
+async def list_files(prefix: str = "", *, limit: int = 200) -> list[dict[str, Any]]:
+    """List entries (folders + files) at the given prefix. Non-recursive.
+
+    Each entry: `{name, id, updated_at, metadata: {size, mimetype}}`.
+    Folders are returned with `id=None` and `metadata=None` so the caller
+    can distinguish them from files without an extra stat call. Dotfiles
+    (anything starting with `.`) are filtered out of listings.
+    """
+    out = await asyncio.to_thread(_list_files_sync, prefix, limit)
+    await _log("storage:list", {"prefix": prefix, "count": len(out)})
+    return out
+
+
+async def list_recursive(prefix: str) -> list[str]:
+    """Return every file path (relative to STUDY_ROOT) under `prefix`,
+    descending into subfolders. Skips dotfiles."""
+    return await asyncio.to_thread(_list_recursive_sync, prefix)
+
+
+async def download(path: str) -> bytes:
+    """Return raw bytes of a file."""
+    data = await asyncio.to_thread(_download_sync, path)
+    await _log("storage:read", {"path": path, "size": len(data)})
+    return data
+
+
+async def exists(path: str) -> bool:
+    return await asyncio.to_thread(_exists_sync, path)
+
+
+async def stat(path: str) -> dict[str, Any] | None:
+    """Return file metadata or None if the path doesn't exist."""
+    return await asyncio.to_thread(_stat_sync, path)
+
+
+# ── Write ────────────────────────────────────────────────────────────────────
+
+
+async def upload(path: str, data: bytes, content_type: str = "application/octet-stream") -> dict[str, Any]:
+    """Write (or overwrite) a file. Atomic via tmp+rename within the same dir."""
+    await asyncio.to_thread(_upload_sync, path, data)
+    await _log("storage:upload", {"path": path, "size": len(data), "content_type": content_type})
+    return {"path": path, "size": len(data), "content_type": content_type}
+
+
+async def delete(paths: list[str]) -> dict[str, Any]:
+    """Delete one or more files. Missing paths are silently OK (idempotent)."""
+    deleted = await asyncio.to_thread(_delete_sync, paths)
+    await _log("storage:delete", {"paths": paths, "count": len(deleted)})
     return {"deleted": deleted}
 
 
-def signed_url(path: str, expires_in: int = 3600) -> str:
+async def signed_url(path: str, expires_in: int = 3600) -> str:
     """Return an in-app URL the browser can fetch the file from.
 
     Same-origin path that hits `GET /api/files/raw`, which streams the
@@ -251,13 +309,13 @@ def signed_url(path: str, expires_in: int = 3600) -> str:
     of the API surface for parity with externally signed URLs but isn't
     enforced here — the session cookie is the auth token.
     """
-    if not exists(path):
+    if not await exists(path):
         raise FileNotFoundError(f"not found: {path}")
-    _log("storage:sign", {"path": path, "expires_in": expires_in})
+    await _log("storage:sign", {"path": path, "expires_in": expires_in})
     return f"/api/files/raw?path={quote(path, safe='/')}"
 
 
-def signed_upload_url(path: str) -> dict[str, Any]:
+async def signed_upload_url(path: str) -> dict[str, Any]:
     """Return a URL the browser can PUT the file body to.
 
     Two-step uploads: the JSON endpoint at `POST /api/files/upload-url`
@@ -265,7 +323,7 @@ def signed_upload_url(path: str) -> dict[str, Any]:
     there, which lands in `/api/files/upload-target` and persists it
     via `upload()`.
     """
-    _log("storage:sign:upload", {"path": path})
+    await _log("storage:sign:upload", {"path": path})
     return {
         "url": f"/api/files/upload-target?path={quote(path, safe='/')}",
         "token": None,
@@ -273,14 +331,9 @@ def signed_upload_url(path: str) -> dict[str, Any]:
     }
 
 
-def move(source: str, destination: str) -> dict[str, Any]:
+async def move(source: str, destination: str) -> dict[str, Any]:
     """Rename or move a file. Cross-directory moves work as long as both
     sides are under STUDY_ROOT."""
-    src = _safe_resolve(source)
-    dst = _safe_resolve(destination)
-    if not src.exists():
-        raise FileNotFoundError(f"source not found: {source}")
-    dst.parent.mkdir(parents=True, exist_ok=True)
-    shutil.move(str(src), str(dst))
-    _log("storage:move", {"from": source, "to": destination})
+    await asyncio.to_thread(_move_sync, source, destination)
+    await _log("storage:move", {"from": source, "to": destination})
     return {"from": source, "to": destination}
