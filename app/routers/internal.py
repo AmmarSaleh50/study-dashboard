@@ -37,11 +37,14 @@ def _check_secret(provided: str | None) -> None:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="bad secret")
 
 
-def _reindex() -> None:
+async def _reindex() -> None:
     """Wrapper that swallows exceptions so background-task failures don't
-    crash the worker. Errors are logged and surface in /api/health."""
+    crash the worker. Errors are logged and surface in /api/health.
+
+    BackgroundTasks accepts both sync and async callables — making this
+    `async def` lets it await the now-async `index_all()` directly."""
     try:
-        stats = file_index_svc.index_all()
+        stats = await file_index_svc.index_all()
         log.info("file_index reindex done: %s", stats)
     except Exception as e:
         log.exception("file_index reindex failed: %s", e)

@@ -2,8 +2,8 @@
 
 Walks `STUDY_ROOT`, extracts text from PDFs / notebooks / markdown / typst,
 and upserts each file's text into the `file_index` table. Search is exposed
-via a Postgres RPC (`search_files`) so PostgREST can run ranking and
-snippet generation server-side in one round-trip.
+via a Postgres function (`search_files`) so ranking and snippet generation
+run server-side in one round-trip.
 """
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ import logging
 from datetime import datetime, timezone
 from typing import Any
 
-from ..db import client
+from .. import db
 from . import storage as storage_svc
 
 log = logging.getLogger(__name__)
@@ -75,17 +75,18 @@ def _extract_text(path: str, data: bytes) -> str | None:
     return None
 
 
-def index_all() -> dict[str, Any]:
+async def index_all() -> dict[str, Any]:
     """Walk the entire course tree and index any file whose sha256 differs from
     the stored row (or that's not yet indexed). Returns a stats dict."""
-    db = client()
-    keys = storage_svc.list_recursive("")
+    keys = await storage_svc.list_recursive("")
 
     # Pull existing rows in one go so we don't make 100 round-trips
     existing: dict[str, str] = {}
     try:
-        page = db.table("file_index").select("path,sha256").limit(10000).execute()
-        for row in page.data or []:
+        rows = await db.fetch(
+            "SELECT path, sha256 FROM file_index LIMIT 10000"
+        )
+        for row in rows:
             existing[row["path"]] = row.get("sha256") or ""
     except Exception as e:
         log.warning("could not preload existing rows (table may not exist yet): %s", e)
@@ -98,7 +99,7 @@ def index_all() -> dict[str, Any]:
             skipped += 1
             continue
         try:
-            data = storage_svc.download(path)
+            data = await storage_svc.download(path)
         except Exception as e:
             log.warning("download failed %s: %s", path, e)
             failed += 1
@@ -111,18 +112,27 @@ def index_all() -> dict[str, Any]:
         if text is None:
             failed += 1
             continue
-        # PostgREST's text columns choke on raw NULs; strip them
+        # Postgres text columns choke on raw NULs; strip them
         text = text.replace("\x00", "")
-        row = {
-            "path": path,
-            "course_code": _course_code_from_path(path),
-            "size": len(data),
-            "sha256": sha,
-            "text_content": text,
-            "indexed_at": datetime.now(timezone.utc).isoformat(),
-        }
         try:
-            db.table("file_index").upsert(row, on_conflict="path").execute()
+            await db.execute(
+                """
+                INSERT INTO file_index (path, course_code, size, sha256, text_content, indexed_at)
+                VALUES (%s, %s, %s, %s, %s, %s)
+                ON CONFLICT (path) DO UPDATE
+                   SET course_code = EXCLUDED.course_code,
+                       size = EXCLUDED.size,
+                       sha256 = EXCLUDED.sha256,
+                       text_content = EXCLUDED.text_content,
+                       indexed_at = EXCLUDED.indexed_at
+                """,
+                path,
+                _course_code_from_path(path),
+                len(data),
+                sha,
+                text,
+                datetime.now(timezone.utc),
+            )
             indexed += 1
         except Exception as e:
             log.warning("upsert failed for %s: %s", path, e)
@@ -133,7 +143,10 @@ def index_all() -> dict[str, Any]:
     try:
         all_paths = set(keys)
         for stale in [p for p in existing if p not in all_paths]:
-            db.table("file_index").delete().eq("path", stale).execute()
+            await db.execute(
+                "DELETE FROM file_index WHERE path = %s",
+                stale,
+            )
             pruned += 1
     except Exception as e:
         log.warning("prune phase failed: %s", e)
@@ -147,14 +160,15 @@ def index_all() -> dict[str, Any]:
     }
 
 
-def search(q: str, limit: int = 20) -> list[dict[str, Any]]:
-    """Query the search_files Postgres RPC. Returns ranked results with snippets."""
+async def search(q: str, limit: int = 20) -> list[dict[str, Any]]:
+    """Query the search_files Postgres function. Returns ranked results with snippets."""
     if not q or len(q.strip()) < 2:
         return []
-    db = client()
     try:
-        resp = db._pg.rpc("search_files", {"q": q.strip(), "lim": limit}).execute()
+        return await db.fetch(
+            "SELECT * FROM search_files(%s, %s)",
+            q.strip(), limit,
+        )
     except Exception as e:
         log.warning("search rpc failed: %s", e)
         return []
-    return resp.data or []
