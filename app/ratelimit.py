@@ -12,10 +12,22 @@ from .db import client
 
 
 def client_ip(request: Request) -> str:
-    # Trust X-Forwarded-For from our reverse proxy (Caddy)
+    # Cloudflare sets `CF-Connecting-IP` to the real client IP at the edge
+    # and overrides anything the client supplied — preferred because it
+    # can't be spoofed. An attacker rotating `X-Forwarded-For` would
+    # otherwise bypass the rate limiter, since CF appends to (not strips)
+    # client-supplied XFF.
+    cf = request.headers.get("cf-connecting-ip")
+    if cf:
+        return cf.strip()
+    # Fallback for non-Cloudflare deploys: trust XFF only if it has no
+    # commas (single trusted proxy hop). With a chain longer than that,
+    # we can't tell trusted entries from attacker-controlled ones, so we
+    # collapse to the connection IP — globally rate-limiting is better
+    # than letting a header-flipping attacker bypass the limit entirely.
     xff = request.headers.get("x-forwarded-for")
-    if xff:
-        return xff.split(",")[0].strip()
+    if xff and "," not in xff:
+        return xff.strip()
     if request.client:
         return request.client.host
     return "unknown"
