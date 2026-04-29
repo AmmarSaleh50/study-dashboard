@@ -1,28 +1,51 @@
+import json
 from datetime import datetime
 from typing import List, Optional
 
-from ..db import client
+from .. import db
 from ..schemas import Event, EventCreate
-from ._helpers import model_dump_clean
 
 
-def list_events(
+async def list_events(
     since: Optional[datetime] = None,
     kind: Optional[str] = None,
     course_code: Optional[str] = None,
     limit: int = 100,
 ) -> List[Event]:
-    q = client().table("events").select("*").order("created_at", desc=True).limit(limit)
+    where: list[str] = []
+    args: list = []
     if since:
-        q = q.gte("created_at", since.isoformat())
+        where.append("created_at >= %s")
+        args.append(since)
     if kind:
-        q = q.eq("kind", kind)
+        where.append("kind = %s")
+        args.append(kind)
     if course_code:
-        q = q.eq("course_code", course_code)
-    resp = q.execute()
-    return [Event.model_validate(r) for r in resp.data or []]
+        where.append("course_code = %s")
+        args.append(course_code)
+    sql = "SELECT * FROM events"
+    if where:
+        sql += " WHERE " + " AND ".join(where)
+    sql += " ORDER BY created_at DESC LIMIT %s"
+    args.append(limit)
+    rows = await db.fetch(sql, *args)
+    return [Event.model_validate(r) for r in rows]
 
 
-def record_event(payload: EventCreate) -> Event:
-    resp = client().table("events").insert(model_dump_clean(payload)).execute()
-    return Event.model_validate(resp.data[0])
+async def record_event(payload: EventCreate) -> Event:
+    """Insert a row into `events`. JSONB payload is serialised via json.dumps
+    + an explicit `::jsonb` cast so psycopg sends it as a single text param."""
+    # `payload` here is the Pydantic model; its `.payload` attribute is the
+    # event body dict (or None). Don't confuse with the variable name.
+    payload_json = json.dumps(payload.payload) if payload.payload is not None else None
+    row = await db.fetchrow(
+        "INSERT INTO events (kind, course_code, payload) "
+        "VALUES (%s, %s, %s::jsonb) RETURNING *",
+        payload.kind, payload.course_code, payload_json,
+    )
+    if row is None:
+        raise ValueError(f"failed to record event '{payload.kind}'")
+    return Event.model_validate(row)
+
+
+__all__ = ["list_events", "record_event"]

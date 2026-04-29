@@ -17,9 +17,9 @@ async def list_(
     limit: int = 100,
     _: bool = Depends(require_auth),
 ) -> List[Event]:
-    return svc.list_events(since=since, kind=kind, course_code=course_code, limit=limit)
+    return await svc.list_events(since=since, kind=kind, course_code=course_code, limit=limit)
 
 
 @router.post("", response_model=Event)
 async def create(body: EventCreate, _: bool = Depends(require_auth)) -> Event:
-    return svc.record_event(body)
+    return await svc.record_event(body)
