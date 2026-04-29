@@ -76,8 +76,8 @@ async def init_pool(dsn: str | None = None) -> None:
         max_size=10,
         open=False,
         # dict_row factory — every cursor returns dict-shaped rows so
-        # services can keep using `row["column"]` access. Same shape
-        # PostgREST returned in `resp.data`.
+        # services use `row["column"]` access (same shape Pydantic's
+        # `model_validate(row)` consumes).
         kwargs={"row_factory": dict_row},
         # Per-connection adapter setup so UUID columns load as `str`
         # rather than `uuid.UUID` (Pydantic-friendly).

@@ -1,5 +1,5 @@
-# OpenStudy stack: postgres + postgrest + fastapi + frontend.
-# All four containers live on an internal docker network. Only `frontend`
+# OpenStudy stack: postgres + fastapi + frontend.
+# All three containers live on an internal docker network. Only `frontend`
 # (which serves the SPA and reverse-proxies API traffic to fastapi) and
 # `openstudy` (kept exposed for direct curl debugging) are bound to the host.
 # A user's outer reverse proxy (Caddy / nginx / Traefik / whatever)
@@ -29,34 +29,8 @@ services:
       retries: 12
       start_period: 15s
     networks: [internal]
-    # Never expose postgres to the host or internet — only postgrest + openstudy
-    # talk to it via the internal docker network.
-
-  postgrest:
-    image: postgrest/postgrest:v12.2.3
-    container_name: openstudy-postgrest
-    restart: unless-stopped
-    env_file:
-      - path: .env.docker
-        format: raw
-        required: true
-    environment:
-      PGRST_DB_URI: "postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}"
-      PGRST_DB_SCHEMA: public
-      PGRST_DB_ANON_ROLE: ${POSTGRES_USER}
-      PGRST_OPENAPI_MODE: disabled
-      PGRST_LOG_LEVEL: info
-      # JWT auth deliberately disabled — postgrest is on the internal network
-      # only, fronted by FastAPI which does its own session/MCP auth.
-      # If we ever expose postgrest externally, set PGRST_JWT_SECRET here.
-    depends_on:
-      postgres:
-        condition: service_healthy
-    # No healthcheck — postgrest's image ships no curl/wget/nc, and any
-    # CMD-SHELL exit 0 trick still reports unhealthy in some compose builds.
-    # The openstudy container's /api/health does a real DB call through here,
-    # so postgrest health is covered transitively.
-    networks: [internal]
+    # Never expose postgres to the host or internet — only the openstudy
+    # backend talks to it via the internal docker network (psycopg pool).
 
   openstudy:
     build:
@@ -76,21 +50,11 @@ services:
         format: raw
         required: true
     environment:
-      # Point app/db.py at the local postgrest container on the internal
-      # network. The API key is any non-empty string since postgrest JWT
-      # auth is disabled — it's only required by the settings validator.
-      POSTGREST_URL: "http://postgrest:3000"
-      POSTGREST_API_KEY: "internal"
-      # Don't send Bearer auth to local PostgREST — JWT is disabled and
-      # any non-JWT bearer value 500s.
-      POSTGREST_AUTH: "false"
       # Tell the storage layer where the canonical course tree lives.
       STUDY_ROOT: "/opt/courses"
     depends_on:
       postgres:
         condition: service_healthy
-      postgrest:
-        condition: service_started
     volumes:
       # Bind mount, not volume — files live on the host, container reads/writes
       # them in place. Same path inside and outside for sanity.
