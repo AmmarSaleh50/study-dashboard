@@ -56,9 +56,13 @@ def wait_for_postgres(dsn: str, timeout_s: int = 60) -> None:
 
 
 def ensure_migrations_table(conn: psycopg.Connection) -> None:
+    # Schema-qualify everywhere we touch this table, because pg_dump-style
+    # migration files commonly run `SELECT set_config('search_path','',…)`
+    # for hardening — after which an unqualified `_migrations` reference
+    # would fail with "relation does not exist".
     conn.execute(
         """
-        CREATE TABLE IF NOT EXISTS _migrations (
+        CREATE TABLE IF NOT EXISTS public._migrations (
             filename   TEXT PRIMARY KEY,
             checksum   TEXT NOT NULL,
             applied_at TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -72,7 +76,7 @@ def list_pending(conn: psycopg.Connection) -> list[Path]:
     if not MIGRATIONS_DIR.exists():
         raise RuntimeError(f"migrations dir missing: {MIGRATIONS_DIR}")
     on_disk = sorted(MIGRATIONS_DIR.glob("*.sql"))
-    cur = conn.execute("SELECT filename, checksum FROM _migrations")
+    cur = conn.execute("SELECT filename, checksum FROM public._migrations")
     applied = {row[0]: row[1] for row in cur.fetchall()}
     pending: list[Path] = []
     for f in on_disk:
@@ -147,15 +151,49 @@ def _strip_outer_transaction(sql: str) -> str:
     return "\n".join(out)
 
 
+def _strip_psql_meta_commands(sql: str) -> str:
+    """Strip psql meta-commands (lines starting with `\\`) before sending
+    the SQL to psycopg.
+
+    pg_dump 17.x adds `\\restrict <token>` and `\\unrestrict <token>` around
+    the dump body as a hardening measure against malicious objects being
+    created during restore. They're interpreted by psql client-side; sending
+    them to the server (which is what psycopg does) raises `syntax error at
+    or near "\\"`. Other meta-commands (`\\set`, `\\connect`, `\\echo`, …)
+    have the same problem.
+
+    A literal backslash at column 1 of a `$$ … $$` plpgsql string body would
+    technically be valid string content, so we only strip lines that start
+    with `\\` while NOT inside a dollar-quoted region. The dollar-state is
+    tracked at line entry, since the meta-command sits at the start of the
+    line — its scope is the state BEFORE this line's $$ tokens take effect.
+    """
+    lines = sql.splitlines()
+    in_dollar = False
+    out: list[str] = []
+    for raw in lines:
+        was_in_dollar = in_dollar
+        if "$$" in raw and raw.count("$$") % 2 == 1:
+            in_dollar = not in_dollar
+        if not was_in_dollar and raw.lstrip().startswith("\\"):
+            continue  # drop meta-command line entirely
+        out.append(raw)
+    return "\n".join(out)
+
+
 def apply(conn: psycopg.Connection, sql_file: Path) -> None:
     raw_sql = sql_file.read_text(encoding="utf-8")
     sha = hashlib.sha256(raw_sql.encode("utf-8")).hexdigest()
+    # Strip is layered: outer-tx (BEGIN/COMMIT) first, then psql meta-cmds.
+    # Sha is computed on the unmodified file, so cross-machine checksums
+    # always match regardless of what we strip at apply time.
     sql = _strip_outer_transaction(raw_sql)
+    sql = _strip_psql_meta_commands(sql)
     print(f"  applying {sql_file.name} ({len(raw_sql)} bytes, sha {sha[:12]})...")
     with conn.transaction():
         conn.execute(sql)
         conn.execute(
-            "INSERT INTO _migrations (filename, checksum) VALUES (%s, %s)",
+            "INSERT INTO public._migrations (filename, checksum) VALUES (%s, %s)",
             (sql_file.name, sha),
         )
 

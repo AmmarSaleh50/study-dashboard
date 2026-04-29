@@ -27,8 +27,12 @@ SET row_security = off;
 --
 -- Name: public; Type: SCHEMA; Schema: -; Owner: -
 --
+-- IF NOT EXISTS added to this line (only) so the dump is applicable to a
+-- freshly-initialised postgres, which always ships with `public` already
+-- created. pg_dump itself emits a bare `CREATE SCHEMA public;` because it
+-- assumes a `--clean` restore where that schema was just dropped.
 
-CREATE SCHEMA public;
+CREATE SCHEMA IF NOT EXISTS public;
 
 
 --
