@@ -81,20 +81,21 @@ def create_app() -> FastAPI:
     # the caller can read the body for diagnostics.
     @app.get("/api/health")
     async def health() -> JSONResponse:
-        from .db import client as db_client
         from .services import storage as storage_svc
 
         out: dict = {"ok": True, "version": "0.5.0"}
-        # DB check: a trivial select via PostgREST (uses head=true to skip body)
+        # DB check: trivial round-trip through the async pool. Uses
+        # `SELECT 1` rather than a real table read so it stays cheap and
+        # doesn't depend on any specific schema state.
         try:
-            db_client().table("courses").select("code", head=True, count="exact").execute()
+            await db_module.fetchval("SELECT 1")
             out["db"] = "ok"
         except Exception as exc:
             out["db"] = f"error: {exc!s}"[:200]
             out["ok"] = False
         # Storage check: STUDY_ROOT must exist and be readable
         try:
-            entries = storage_svc.list_files("", limit=1)
+            entries = await storage_svc.list_files("", limit=1)
             out["storage"] = f"ok ({len(entries)} entries seen)"
         except Exception as exc:
             out["storage"] = f"error: {exc!s}"[:200]

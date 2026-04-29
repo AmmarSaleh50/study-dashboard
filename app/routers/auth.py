@@ -1,6 +1,7 @@
 import pyotp
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 
+from .. import db
 from ..auth import (
     clear_session,
     get_totp_state,
@@ -11,7 +12,6 @@ from ..auth import (
     verify_password,
     verify_totp,
 )
-from ..db import client
 from ..ratelimit import check_login_rate, record_login_attempt
 from ..schemas import LoginRequest, SessionInfo, TotpSetupResponse, TotpVerifyRequest
 
@@ -24,32 +24,32 @@ async def login(body: LoginRequest, request: Request, response: Response) -> Ses
     ok = verify_password(body.password)
     # If password is correct AND TOTP is enabled, also require a valid code.
     # Frontend reads the 401 detail string to know whether to show the TOTP field.
-    if ok and is_totp_required():
+    if ok and await is_totp_required():
         if not body.totp_code:
             # Don't record as a failed attempt — the password was correct,
             # the user is just at the start of the two-factor flow. Marking
             # this as a failure would eat the rate-limit budget on every
             # legitimate login.
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="totp_required")
-        if not verify_totp(body.totp_code):
+        if not await verify_totp(body.totp_code):
             await record_login_attempt(request, False)
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid totp code")
     await record_login_attempt(request, ok)
     if not ok:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid password")
     issue_session(response)
-    return SessionInfo(authed=True, totp_enabled=is_totp_required())
+    return SessionInfo(authed=True, totp_enabled=await is_totp_required())
 
 
 @router.post("/logout", response_model=SessionInfo)
 async def logout(response: Response) -> SessionInfo:
     clear_session(response)
-    return SessionInfo(authed=False, totp_enabled=is_totp_required())
+    return SessionInfo(authed=False, totp_enabled=await is_totp_required())
 
 
 @router.get("/session", response_model=SessionInfo)
 async def session(authed: bool = Depends(optional_auth)) -> SessionInfo:
-    return SessionInfo(authed=authed, totp_enabled=is_totp_required())
+    return SessionInfo(authed=authed, totp_enabled=await is_totp_required())
 
 
 # ── TOTP setup / disable (auth-gated) ──────────────────────────────────────
@@ -60,10 +60,10 @@ async def totp_setup(_: bool = Depends(require_auth)) -> TotpSetupResponse:
     with a valid code from an authenticator app first. The secret is stored on
     the singleton row but `totp_enabled` stays false until confirmed."""
     secret = pyotp.random_base32()
-    client().table("app_settings").update({
-        "totp_secret": secret,
-        "totp_enabled": False,
-    }).eq("id", 1).execute()
+    await db.execute(
+        "UPDATE app_settings SET totp_secret = %s, totp_enabled = false WHERE id = 1",
+        secret,
+    )
     uri = pyotp.TOTP(secret).provisioning_uri(name="admin", issuer_name="OpenStudy")
     return TotpSetupResponse(secret=secret, provisioning_uri=uri)
 
@@ -71,23 +71,24 @@ async def totp_setup(_: bool = Depends(require_auth)) -> TotpSetupResponse:
 @router.post("/totp/enable", response_model=SessionInfo)
 async def totp_enable(body: TotpVerifyRequest, _: bool = Depends(require_auth)) -> SessionInfo:
     """Confirm setup by submitting a 6-digit code from the authenticator."""
-    enabled, secret = get_totp_state()
+    enabled, secret = await get_totp_state()
     if not secret:
         raise HTTPException(400, "no pending TOTP secret — call /setup first")
     code = body.code.strip().replace(" ", "")
     if not pyotp.TOTP(secret).verify(code, valid_window=1):
         raise HTTPException(401, "invalid code")
-    client().table("app_settings").update({"totp_enabled": True}).eq("id", 1).execute()
+    await db.execute(
+        "UPDATE app_settings SET totp_enabled = true WHERE id = 1"
+    )
     return SessionInfo(authed=True, totp_enabled=True)
 
 
 @router.post("/totp/disable", response_model=SessionInfo)
 async def totp_disable(body: TotpVerifyRequest, _: bool = Depends(require_auth)) -> SessionInfo:
     """Disable TOTP. Must verify a current code so a stolen session can't disable."""
-    if not verify_totp(body.code):
+    if not await verify_totp(body.code):
         raise HTTPException(401, "invalid code")
-    client().table("app_settings").update({
-        "totp_enabled": False,
-        "totp_secret": None,
-    }).eq("id", 1).execute()
+    await db.execute(
+        "UPDATE app_settings SET totp_enabled = false, totp_secret = NULL WHERE id = 1"
+    )
     return SessionInfo(authed=True, totp_enabled=False)

@@ -34,7 +34,7 @@ class PostgrestTokenVerifier(TokenVerifier):
         self._resource = resource
 
     async def verify_token(self, token: str) -> Optional[AccessToken]:
-        row = oauth_svc.verify_access_token(token)
+        row = await oauth_svc.verify_access_token(token)
         if not row:
             return None
         scope = row.get("scope") or "mcp"

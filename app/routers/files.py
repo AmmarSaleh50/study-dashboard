@@ -25,8 +25,8 @@ import httpx
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request
 from fastapi.responses import FileResponse
 
+from .. import db
 from ..auth import require_auth
-from ..db import client
 from ..services import file_index as file_index_svc
 from ..services import storage as storage_svc
 
@@ -227,11 +227,13 @@ async def lecture_materials(course_code: str = Query(...)) -> dict[str, list[dic
     grouping by the leading number. Returns `{lecture_number: [{name, path, size}, …]}`.
     Lecture-less files (no NN prefix) end up under the empty string key.
     """
-    res = client().table("courses").select("folder_name").eq("code", course_code.upper()).limit(1).execute()
-    rows = res.data or []
-    if not rows:
+    row = await db.fetchrow(
+        "SELECT folder_name FROM courses WHERE code = %s LIMIT 1",
+        course_code.upper(),
+    )
+    if row is None:
         raise HTTPException(400, f"unknown course code {course_code!r}")
-    folder = (rows[0].get("folder_name") or "").strip() or course_code.upper()
+    folder = (row.get("folder_name") or "").strip() or course_code.upper()
     try:
         # list_recursive returns full keys under the prefix
         keys = await storage_svc.list_recursive(folder)
@@ -262,7 +264,7 @@ async def search(q: str = Query(..., min_length=2), limit: int = Query(20, le=10
     Returns ranked matches with snippets. Match terms are wrapped in
     `<<…>>` markers in the snippet so the frontend can highlight them.
     """
-    return file_index_svc.search(q, limit=limit)
+    return await file_index_svc.search(q, limit=limit)
 
 
 @router.get("/raw")

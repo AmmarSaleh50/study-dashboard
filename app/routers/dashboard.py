@@ -9,4 +9,4 @@ router = APIRouter(prefix="/dashboard", tags=["dashboard"])
 
 @router.get("", response_model=DashboardSummary)
 async def dashboard(_: bool = Depends(require_auth)) -> DashboardSummary:
-    return get_dashboard_summary()
+    return await get_dashboard_summary()

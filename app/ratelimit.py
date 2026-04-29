@@ -7,8 +7,8 @@ from datetime import datetime, timedelta, timezone
 
 from fastapi import HTTPException, Request, status
 
+from . import db
 from .config import get_settings
-from .db import client
 
 
 def client_ip(request: Request) -> str:
@@ -36,18 +36,14 @@ def client_ip(request: Request) -> str:
 async def check_login_rate(request: Request) -> None:
     s = get_settings()
     ip = client_ip(request)
-    since = (datetime.now(timezone.utc) - timedelta(minutes=s.login_attempts_window_min)).isoformat()
+    since = datetime.now(timezone.utc) - timedelta(minutes=s.login_attempts_window_min)
 
-    resp = (
-        client()
-        .table("login_attempts")
-        .select("id", count="exact")
-        .eq("ip", ip)
-        .eq("ok", False)
-        .gte("at", since)
-        .execute()
+    failures = await db.fetchval(
+        "SELECT count(*) FROM login_attempts "
+        "WHERE ip = %s AND ok = false AND at >= %s",
+        ip, since,
     )
-    failures = resp.count or 0
+    failures = failures or 0
     if failures >= s.login_attempts_max:
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
@@ -58,6 +54,7 @@ async def check_login_rate(request: Request) -> None:
 async def record_login_attempt(request: Request, ok: bool) -> None:
     ip = client_ip(request)
     ua = request.headers.get("user-agent", "")[:200]
-    client().table("login_attempts").insert(
-        {"ip": ip, "ok": ok, "user_agent": ua}
-    ).execute()
+    await db.execute(
+        "INSERT INTO login_attempts (ip, ok, user_agent) VALUES (%s, %s, %s)",
+        ip, ok, ua,
+    )

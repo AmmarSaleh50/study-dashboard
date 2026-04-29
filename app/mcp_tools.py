@@ -89,7 +89,7 @@ def register_tools(server: FastMCP) -> None:
     # ─────────────────────── Orientation ─────────────────────
 
     @server.tool()
-    def get_dashboard() -> dict:
+    async def get_dashboard() -> dict:
         """Full dashboard snapshot in one call: courses, schedule slots, exams,
         deliverables, tasks, lectures, study topics, plus computed fall-behind
         warnings.
@@ -100,10 +100,10 @@ def register_tools(server: FastMCP) -> None:
 
         When NOT to use: single-entity lookups — use `get_course`,
         `list_tasks`, etc. directly."""
-        return _jsonable(dashboard_svc.get_dashboard_summary())
+        return _jsonable(await dashboard_svc.get_dashboard_summary())
 
     @server.tool()
-    def get_fall_behind() -> list[dict]:
+    async def get_fall_behind() -> list[dict]:
         """Per-course catch-up warnings. Each entry: course_code, severity
         (ok|warn|critical), the unstudied topics (with their lecture dates),
         last_covered_on, and when the next relevant lecture is.
@@ -114,27 +114,27 @@ def register_tools(server: FastMCP) -> None:
 
         When NOT to use: to check ONE specific course — just call
         `list_study_topics(course_code=..., status='not_started')`."""
-        summary = dashboard_svc.get_dashboard_summary()
+        summary = await dashboard_svc.get_dashboard_summary()
         return _jsonable(summary.fall_behind)
 
     # ─────────────────────── Courses ─────────────────────────
 
     @server.tool()
-    def list_courses() -> list[dict]:
+    async def list_courses() -> list[dict]:
         """List all courses. Use when you need to discover which course codes
         exist, or to show the user their course list. If you already know the
         code, prefer `get_course`."""
-        return _jsonable(courses_svc.list_courses())
+        return _jsonable(await courses_svc.list_courses())
 
     @server.tool()
-    def get_course(code: str) -> dict | None:
+    async def get_course(code: str) -> dict | None:
         """Fetch a single course by its code (e.g. 'ASB', 'CS101'). Returns
         None if no such course — `list_courses` first if uncertain."""
-        c = courses_svc.get_course(code)
+        c = await courses_svc.get_course(code)
         return _jsonable(c) if c else None
 
     @server.tool()
-    def create_course(
+    async def create_course(
         code: str,
         full_name: str,
         short_name: Optional[str] = None,
@@ -162,7 +162,7 @@ def register_tools(server: FastMCP) -> None:
 
         Errors if the code already exists; use `update_course` to modify an
         existing one."""
-        if courses_svc.get_course(code) is not None:
+        if await courses_svc.get_course(code) is not None:
             raise ValueError(f"course {code} already exists")
         body = CourseCreate(
             code=code,
@@ -179,21 +179,21 @@ def register_tools(server: FastMCP) -> None:
             exam_retries=exam_retries,
             notes=notes,
         )
-        return _jsonable(courses_svc.create_course(body))
+        return _jsonable(await courses_svc.create_course(body))
 
     @server.tool()
-    def delete_course(code: str) -> dict:
+    async def delete_course(code: str) -> dict:
         """Delete a course. CASCADES: lectures, study topics, deliverables,
         tasks, schedule slots, and the exam row for this course are all
         removed. Always ask the user to confirm before calling — this is
         irreversible."""
-        if courses_svc.get_course(code) is None:
+        if await courses_svc.get_course(code) is None:
             raise ValueError(f"course {code} not found")
-        courses_svc.delete_course(code)
+        await courses_svc.delete_course(code)
         return {"deleted": code}
 
     @server.tool()
-    def update_course(
+    async def update_course(
         code: str,
         full_name: Optional[str] = None,
         short_name: Optional[str] = None,
@@ -228,23 +228,23 @@ def register_tools(server: FastMCP) -> None:
             exam_retries=exam_retries,
             notes=notes,
         )
-        return _jsonable(courses_svc.update_course(code, patch))
+        return _jsonable(await courses_svc.update_course(code, patch))
 
     # ─────────────────────── Schedule slots ──────────────────
     # Weekly recurring timetable entries. NOT individual lecture sessions —
     # use `list_lectures` / `create_lecture` for those.
 
     @server.tool()
-    def list_schedule_slots(course_code: Optional[str] = None) -> list[dict]:
+    async def list_schedule_slots(course_code: Optional[str] = None) -> list[dict]:
         """List weekly recurring schedule slots — each row is one recurring
         class the user has on their timetable (e.g. 'Monday 10:00 lecture for
         CS101'). Filter by course_code to get one course's timetable.
 
         NOT individual held sessions — those are `list_lectures`."""
-        return _jsonable(slots_svc.list_slots(course_code=course_code))
+        return _jsonable(await slots_svc.list_slots(course_code=course_code))
 
     @server.tool()
-    def create_schedule_slot(
+    async def create_schedule_slot(
         course_code: str,
         kind: str,
         weekday: int,
@@ -280,10 +280,10 @@ def register_tools(server: FastMCP) -> None:
             ends_on=ends_on,  # type: ignore[arg-type]
             notes=notes,
         )
-        return _jsonable(slots_svc.upsert_slot(payload, slot_id=None))
+        return _jsonable(await slots_svc.create_slot(payload))
 
     @server.tool()
-    def update_schedule_slot(
+    async def update_schedule_slot(
         slot_id: str,
         kind: Optional[str] = None,
         weekday: Optional[int] = None,
@@ -309,13 +309,13 @@ def register_tools(server: FastMCP) -> None:
             ends_on=ends_on,  # type: ignore[arg-type]
             notes=notes,
         )
-        return _jsonable(slots_svc.update_slot(slot_id, patch))
+        return _jsonable(await slots_svc.update_slot(slot_id, patch))
 
     @server.tool()
-    def delete_schedule_slot(slot_id: str) -> dict:
+    async def delete_schedule_slot(slot_id: str) -> dict:
         """Delete a weekly schedule slot by id. Non-destructive elsewhere —
         lectures already held are not affected."""
-        slots_svc.delete_slot(slot_id)
+        await slots_svc.delete_slot(slot_id)
         return {"deleted": slot_id}
 
     # ─────────────────────── Exams ───────────────────────────
@@ -323,17 +323,17 @@ def register_tools(server: FastMCP) -> None:
     # as deliverables (problem sets / projects).
 
     @server.tool()
-    def list_exams() -> list[dict]:
+    async def list_exams() -> list[dict]:
         """List end-of-semester exams — one row per course, with date,
         location, duration, aids allowed, weight, and status
         (planned|confirmed|done).
 
         For intermediate graded work (problem sets, projects, labs), use
         `list_deliverables` instead."""
-        return _jsonable(exams_svc.list_exams())
+        return _jsonable(await exams_svc.list_exams())
 
     @server.tool()
-    def update_exam(
+    async def update_exam(
         course_code: str,
         scheduled_at: Optional[str] = None,
         duration_min: Optional[int] = None,
@@ -361,7 +361,7 @@ def register_tools(server: FastMCP) -> None:
             weight_pct=weight_pct,
             notes=notes,
         )
-        return _jsonable(exams_svc.update_exam(course_code, patch))
+        return _jsonable(await exams_svc.update_exam(course_code, patch))
 
     # ─────────────────────── Study topics ────────────────────
     # The atomic unit of "what the student is tracking progress on". One
@@ -369,7 +369,7 @@ def register_tools(server: FastMCP) -> None:
     # possible via `lecture_id` — that's how fall-behind works.
 
     @server.tool()
-    def list_study_topics(
+    async def list_study_topics(
         course_code: Optional[str] = None, status: Optional[str] = None
     ) -> list[dict]:
         """List atomic study topics — the smallest unit of material the user
@@ -383,10 +383,10 @@ def register_tools(server: FastMCP) -> None:
 
         When NOT to use: don't confuse with `list_lectures` (held sessions)
         or `list_deliverables` (graded submissions)."""
-        return _jsonable(topics_svc.list_study_topics(course_code=course_code, status=status))
+        return _jsonable(await topics_svc.list_study_topics(course_code=course_code, status=status))
 
     @server.tool()
-    def create_study_topic(
+    async def create_study_topic(
         course_code: str,
         name: str,
         chapter: Optional[str] = None,
@@ -425,10 +425,10 @@ def register_tools(server: FastMCP) -> None:
             notes=notes,
             sort_order=sort_order,
         )
-        return _jsonable(topics_svc.create_study_topic(payload))
+        return _jsonable(await topics_svc.create_study_topic(payload))
 
     @server.tool()
-    def update_study_topic(
+    async def update_study_topic(
         topic_id: str,
         chapter: Optional[str] = None,
         name: Optional[str] = None,
@@ -459,17 +459,17 @@ def register_tools(server: FastMCP) -> None:
             notes=notes,
             sort_order=sort_order,
         )
-        return _jsonable(topics_svc.update_study_topic(topic_id, patch))
+        return _jsonable(await topics_svc.update_study_topic(topic_id, patch))
 
     @server.tool()
-    def mark_studied(topic_id: str) -> dict:
+    async def mark_studied(topic_id: str) -> dict:
         """Shortcut: set a topic's status to 'studied' and stamp
         last_reviewed_at. Equivalent to `update_study_topic(topic_id,
         status='studied')` — prefer this shortcut for the common case."""
-        return _jsonable(topics_svc.update_study_topic(topic_id, StudyTopicPatch(status="studied")))
+        return _jsonable(await topics_svc.update_study_topic(topic_id, StudyTopicPatch(status="studied")))
 
     @server.tool()
-    def set_confidence(topic_id: str, confidence: int) -> dict:
+    async def set_confidence(topic_id: str, confidence: int) -> dict:
         """Shortcut: set a topic's confidence (0–5). 0 = no idea, 5 = could
         teach it. Confidence is independent of status — a topic can be
         'studied' but low-confidence.
@@ -478,10 +478,10 @@ def register_tools(server: FastMCP) -> None:
         get it", mark_studied + set_confidence=1 captures that cleanly."""
         if confidence < 0 or confidence > 5:
             raise ValueError("confidence must be 0..5")
-        return _jsonable(topics_svc.update_study_topic(topic_id, StudyTopicPatch(confidence=confidence)))
+        return _jsonable(await topics_svc.update_study_topic(topic_id, StudyTopicPatch(confidence=confidence)))
 
     @server.tool()
-    def add_lecture_topics(
+    async def add_lecture_topics(
         course_code: str,
         covered_on: str,
         topics: list[dict],
@@ -529,15 +529,15 @@ def register_tools(server: FastMCP) -> None:
             lecture_id=lecture_id,
             create_lecture=create_lecture,
         )
-        return _jsonable(topics_svc.add_lecture_topics(payload))
+        return _jsonable(await topics_svc.add_lecture_topics(payload))
 
     @server.tool()
-    def delete_study_topic(topic_id: str) -> dict:
+    async def delete_study_topic(topic_id: str) -> dict:
         """Delete a study topic by id. Safe — doesn't cascade. If the user
         just wants to stop tracking progress, consider
         `update_study_topic(status='skipped'-equivalent)` instead — but
         there's no skipped status, so deletion is usually fine."""
-        topics_svc.delete_study_topic(topic_id)
+        await topics_svc.delete_study_topic(topic_id)
         return {"deleted": topic_id}
 
     # ─────────────────────── Deliverables ────────────────────
@@ -545,7 +545,7 @@ def register_tools(server: FastMCP) -> None:
     # NOT the end-of-semester exam (use exams).
 
     @server.tool()
-    def list_deliverables(
+    async def list_deliverables(
         course_code: Optional[str] = None,
         status: Optional[str] = None,
         due_before: Optional[str] = None,
@@ -562,13 +562,13 @@ def register_tools(server: FastMCP) -> None:
         exam (use `list_exams`)."""
         due = datetime.fromisoformat(due_before) if due_before else None
         return _jsonable(
-            deliverables_svc.list_deliverables(
+            await deliverables_svc.list_deliverables(
                 course_code=course_code, status=status, due_before=due
             )
         )
 
     @server.tool()
-    def create_deliverable(
+    async def create_deliverable(
         course_code: str,
         name: str,
         due_at: str,
@@ -600,10 +600,10 @@ def register_tools(server: FastMCP) -> None:
             weight_info=weight_info,
             notes=notes,
         )
-        return _jsonable(deliverables_svc.create_deliverable(payload))
+        return _jsonable(await deliverables_svc.create_deliverable(payload))
 
     @server.tool()
-    def update_deliverable(
+    async def update_deliverable(
         deliverable_id: str,
         kind: Optional[str] = None,
         name: Optional[str] = None,
@@ -628,21 +628,21 @@ def register_tools(server: FastMCP) -> None:
             weight_info=weight_info,
             notes=notes,
         )
-        return _jsonable(deliverables_svc.update_deliverable(deliverable_id, patch))
+        return _jsonable(await deliverables_svc.update_deliverable(deliverable_id, patch))
 
     @server.tool()
-    def mark_deliverable_submitted(deliverable_id: str) -> dict:
+    async def mark_deliverable_submitted(deliverable_id: str) -> dict:
         """Shortcut: flip a deliverable to status='submitted' and stamp
         submitted_at. Prefer this over `update_deliverable` for the common
         "I handed it in" case."""
-        return _jsonable(deliverables_svc.mark_submitted(deliverable_id))
+        return _jsonable(await deliverables_svc.mark_submitted(deliverable_id))
 
     @server.tool()
-    def delete_deliverable(deliverable_id: str) -> dict:
+    async def delete_deliverable(deliverable_id: str) -> dict:
         """Delete a deliverable by id. Typically only used when it was added
         by mistake — use `update_deliverable(status='skipped')` if the user
         decided to skip it instead."""
-        deliverables_svc.delete_deliverable(deliverable_id)
+        await deliverables_svc.delete_deliverable(deliverable_id)
         return {"deleted": deliverable_id}
 
     # ─────────────────────── Tasks ───────────────────────────
@@ -650,7 +650,7 @@ def register_tools(server: FastMCP) -> None:
     # deliverable, or exam — reminders, errands, reading, etc.
 
     @server.tool()
-    def list_tasks(
+    async def list_tasks(
         course_code: Optional[str] = None,
         status: Optional[str] = None,
         priority: Optional[str] = None,
@@ -669,13 +669,13 @@ def register_tools(server: FastMCP) -> None:
         (`list_study_topics`)."""
         due = datetime.fromisoformat(due_before) if due_before else None
         return _jsonable(
-            tasks_svc.list_tasks(
+            await tasks_svc.list_tasks(
                 course_code=course_code, status=status, priority=priority, due_before=due, tag=tag
             )
         )
 
     @server.tool()
-    def create_task(
+    async def create_task(
         title: str,
         course_code: Optional[str] = None,
         description: Optional[str] = None,
@@ -697,10 +697,10 @@ def register_tools(server: FastMCP) -> None:
             priority=priority,  # type: ignore[arg-type]
             tags=tags,
         )
-        return _jsonable(tasks_svc.create_task(payload))
+        return _jsonable(await tasks_svc.create_task(payload))
 
     @server.tool()
-    def update_task(
+    async def update_task(
         task_id: str,
         course_code: Optional[str] = None,
         title: Optional[str] = None,
@@ -722,24 +722,24 @@ def register_tools(server: FastMCP) -> None:
             priority=priority,  # type: ignore[arg-type]
             tags=tags,
         )
-        return _jsonable(tasks_svc.update_task(task_id, patch))
+        return _jsonable(await tasks_svc.update_task(task_id, patch))
 
     @server.tool()
-    def complete_task(task_id: str) -> dict:
+    async def complete_task(task_id: str) -> dict:
         """Shortcut: mark a task as done and stamp completed_at. Prefer this
         over `update_task(status='done')` for the common completion case."""
-        return _jsonable(tasks_svc.complete_task(task_id))
+        return _jsonable(await tasks_svc.complete_task(task_id))
 
     @server.tool()
-    def reopen_task(task_id: str) -> dict:
+    async def reopen_task(task_id: str) -> dict:
         """Shortcut: revert a done task back to 'open' and clear
         completed_at. For when the user said "done" prematurely."""
-        return _jsonable(tasks_svc.reopen_task(task_id))
+        return _jsonable(await tasks_svc.reopen_task(task_id))
 
     @server.tool()
-    def delete_task(task_id: str) -> dict:
+    async def delete_task(task_id: str) -> dict:
         """Delete a task by id. Safe — no cascades."""
-        tasks_svc.delete_task(task_id)
+        await tasks_svc.delete_task(task_id)
         return {"deleted": task_id}
 
     # ─────────────────────── Lectures ────────────────────────
@@ -748,16 +748,16 @@ def register_tools(server: FastMCP) -> None:
     # linked to it.
 
     @server.tool()
-    def list_lectures(course_code: Optional[str] = None) -> list[dict]:
+    async def list_lectures(course_code: Optional[str] = None) -> list[dict]:
         """List individual lecture sessions — one row per session held on a
         specific date (number, held_on, attended, title, summary). Ordered
         by course_code then number.
 
         NOT the recurring timetable (that's `list_schedule_slots`)."""
-        return _jsonable(lectures_svc.list_lectures(course_code=course_code))
+        return _jsonable(await lectures_svc.list_lectures(course_code=course_code))
 
     @server.tool()
-    def create_lecture(
+    async def create_lecture(
         course_code: str,
         number: Optional[int] = None,
         held_on: Optional[str] = None,
@@ -788,10 +788,10 @@ def register_tools(server: FastMCP) -> None:
             attended=attended,
             notes=notes,
         )
-        return _jsonable(lectures_svc.create_lecture(payload))
+        return _jsonable(await lectures_svc.create_lecture(payload))
 
     @server.tool()
-    def update_lecture(
+    async def update_lecture(
         lecture_id: str,
         number: Optional[int] = None,
         held_on: Optional[str] = None,
@@ -812,33 +812,33 @@ def register_tools(server: FastMCP) -> None:
             attended=attended,
             notes=notes,
         )
-        return _jsonable(lectures_svc.update_lecture(lecture_id, patch))
+        return _jsonable(await lectures_svc.update_lecture(lecture_id, patch))
 
     @server.tool()
-    def mark_lecture_attended(lecture_id: str, attended: bool = True) -> dict:
+    async def mark_lecture_attended(lecture_id: str, attended: bool = True) -> dict:
         """Shortcut: flip a lecture's `attended` flag. Call with
         attended=False to un-mark."""
-        return _jsonable(lectures_svc.mark_attended(lecture_id, attended=attended))
+        return _jsonable(await lectures_svc.mark_attended(lecture_id, attended=attended))
 
     @server.tool()
-    def delete_lecture(lecture_id: str) -> dict:
+    async def delete_lecture(lecture_id: str) -> dict:
         """Delete a lecture. Linked study topics keep existing — their
         lecture_id is cleared to null, not cascaded."""
-        lectures_svc.delete_lecture(lecture_id)
+        await lectures_svc.delete_lecture(lecture_id)
         return {"deleted": lecture_id}
 
     # ─────────────────────── Reopen helpers ──────────────────
 
     @server.tool()
-    def reopen_deliverable(deliverable_id: str) -> dict:
+    async def reopen_deliverable(deliverable_id: str) -> dict:
         """Shortcut: revert a submitted deliverable back to 'open'. For
         "wait, I actually haven't handed it in yet" cases."""
-        return _jsonable(deliverables_svc.reopen_deliverable(deliverable_id))
+        return _jsonable(await deliverables_svc.reopen_deliverable(deliverable_id))
 
     # ─────────────────────── Events (activity log) ───────────
 
     @server.tool()
-    def list_events(
+    async def list_events(
         since: Optional[str] = None,
         kind: Optional[str] = None,
         course_code: Optional[str] = None,
@@ -851,11 +851,11 @@ def register_tools(server: FastMCP) -> None:
         tracking what needs doing — that's `list_tasks` / `list_deliverables`."""
         s = datetime.fromisoformat(since) if since else None
         return _jsonable(
-            events_svc.list_events(since=s, kind=kind, course_code=course_code, limit=limit)
+            await events_svc.list_events(since=s, kind=kind, course_code=course_code, limit=limit)
         )
 
     @server.tool()
-    def record_event(
+    async def record_event(
         kind: str,
         course_code: Optional[str] = None,
         payload: Optional[dict] = None,
@@ -869,7 +869,7 @@ def register_tools(server: FastMCP) -> None:
         from .schemas import EventCreate
 
         return _jsonable(
-            events_svc.record_event(
+            await events_svc.record_event(
                 EventCreate(kind=kind, course_code=course_code, payload=payload)
             )
         )
@@ -877,7 +877,7 @@ def register_tools(server: FastMCP) -> None:
     # ─────────────────────── App settings (profile) ──────────
 
     @server.tool()
-    def get_app_settings() -> dict:
+    async def get_app_settings() -> dict:
         """Get the user's profile + semester config (display_name, monogram,
         institution, semester_label, semester_start, semester_end, timezone,
         locale).
@@ -885,10 +885,10 @@ def register_tools(server: FastMCP) -> None:
         Call this FIRST before any time-sensitive work — knowing the user's
         timezone prevents deadline-off-by-hours bugs, and knowing
         semester_start/end lets you compute "week N" correctly."""
-        return _jsonable(settings_svc.get_settings())
+        return _jsonable(await settings_svc.get_settings())
 
     @server.tool()
-    def update_app_settings(
+    async def update_app_settings(
         display_name: Optional[str] = None,
         monogram: Optional[str] = None,
         institution: Optional[str] = None,
@@ -916,12 +916,12 @@ def register_tools(server: FastMCP) -> None:
             timezone=timezone,
             locale=locale,
         )
-        return _jsonable(settings_svc.update_settings(patch))
+        return _jsonable(await settings_svc.update_settings(patch))
 
     # ─────────────────────── Meta ─────────────────────────────
 
     @server.tool()
-    def now_here() -> dict:
+    async def now_here() -> dict:
         """Current datetime in the user's configured timezone (falls back to
         UTC if unset). Use this whenever you need "now" for relative-time
         calculations — your own clock might be in a different zone than the
@@ -929,7 +929,8 @@ def register_tools(server: FastMCP) -> None:
         from zoneinfo import ZoneInfo
 
         try:
-            tz_name = settings_svc.get_settings().timezone or "UTC"
+            settings_obj = await settings_svc.get_settings()
+            tz_name = settings_obj.timezone or "UTC"
             tz = ZoneInfo(tz_name)
         except Exception:
             tz = timezone.utc
@@ -939,7 +940,7 @@ def register_tools(server: FastMCP) -> None:
     # ─────────────────────── Course files (filesystem under /opt/courses) ─────────
 
     @server.tool()
-    def list_course_files(prefix: str = "", limit: int = 200) -> list[dict]:
+    async def list_course_files(prefix: str = "", limit: int = 200) -> list[dict]:
         """Browse the course tree on disk — the user's course PDFs, notes,
         slides, etc. Structure typically mirrors a local per-course folder
         layout.
@@ -956,7 +957,7 @@ def register_tools(server: FastMCP) -> None:
 
         To read a file's contents, pass its `path` to `read_course_file`."""
         clean = (prefix or "").strip().strip("/")
-        entries = storage_svc.list_files(prefix=clean, limit=limit)
+        entries = await storage_svc.list_files(prefix=clean, limit=limit)
         out: list[dict] = []
         for e in entries:
             name = e.get("name") or ""
@@ -980,7 +981,7 @@ def register_tools(server: FastMCP) -> None:
         return out
 
     @server.tool()
-    def read_course_file(path: str, pages: str = "1-20") -> list:
+    async def read_course_file(path: str, pages: str = "1-20") -> list:
         """Read a file from the course tree on disk. Auto-detects by extension:
           - .md / .txt → plain text
           - .ipynb     → parsed notebook (cells inline as text)
@@ -996,7 +997,7 @@ def register_tools(server: FastMCP) -> None:
         feed tool-returned images to the model.
 
         To browse, use `list_course_files` first."""
-        data = storage_svc.download(path)
+        data = await storage_svc.download(path)
         ext = (path.rsplit(".", 1)[-1] if "." in path else "").lower()
 
         if ext in ("md", "txt", ""):

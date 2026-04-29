@@ -7,8 +7,8 @@ from itsdangerous import TimestampSigner, BadSignature, SignatureExpired
 from argon2 import PasswordHasher
 from argon2.exceptions import VerifyMismatchError
 
+from . import db
 from .config import get_settings
-from .db import client
 
 COOKIE_NAME = "study_session"
 _ph = PasswordHasher()
@@ -90,30 +90,32 @@ def in_window(dt: datetime, minutes: int) -> bool:
 
 # ── TOTP (RFC 6238) ─────────────────────────────────────────────────────────
 
-def get_totp_state() -> tuple[bool, Optional[str]]:
+async def get_totp_state() -> tuple[bool, Optional[str]]:
     """Return (totp_enabled, totp_secret). Single-row app_settings table."""
     try:
-        row = client().table("app_settings").select("totp_enabled,totp_secret").limit(1).execute()
-        if row.data:
-            return bool(row.data[0].get("totp_enabled")), row.data[0].get("totp_secret")
+        row = await db.fetchrow(
+            "SELECT totp_enabled, totp_secret FROM app_settings WHERE id = 1 LIMIT 1"
+        )
+        if row:
+            return bool(row.get("totp_enabled")), row.get("totp_secret")
     except Exception:
         pass
     return False, None
 
 
-def is_totp_required() -> bool:
-    enabled, secret = get_totp_state()
+async def is_totp_required() -> bool:
+    enabled, secret = await get_totp_state()
     return enabled and bool(secret)
 
 
-def verify_totp(code: Optional[str]) -> bool:
+async def verify_totp(code: Optional[str]) -> bool:
     """Validate a 6-digit TOTP code against the stored secret. ±1 step window."""
     if not code:
         return False
     code = code.strip().replace(" ", "")
     if not code.isdigit() or len(code) != 6:
         return False
-    enabled, secret = get_totp_state()
+    enabled, secret = await get_totp_state()
     if not enabled or not secret:
         return False
     return pyotp.TOTP(secret).verify(code, valid_window=1)
