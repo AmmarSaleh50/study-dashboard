@@ -1,3 +1,4 @@
+import { lazy, Suspense } from "react";
 import {
   Clock,
   ListChecks,
@@ -21,21 +22,48 @@ import { fmtBerlin, relative } from "@/lib/time";
 import { useTranslation } from "react-i18next";
 import type { CourseCode } from "@/data/types";
 import { normalizeTheme } from "@/lib/themes";
-import { TerminalDashboard } from "./dashboard-terminal";
-import { ZineDashboard } from "./dashboard-zine";
-import { LibraryDashboard } from "./dashboard-library";
-import { SwissDashboard } from "./dashboard-swiss";
+
+// Themed dashboards are lazy: an editorial-theme user shouldn't download
+// four other implementations. Each chunk loads only when its theme is active.
+const TerminalDashboard = lazy(() =>
+  import("./dashboard-terminal").then((m) => ({ default: m.TerminalDashboard }))
+);
+const ZineDashboard = lazy(() =>
+  import("./dashboard-zine").then((m) => ({ default: m.ZineDashboard }))
+);
+const LibraryDashboard = lazy(() =>
+  import("./dashboard-library").then((m) => ({ default: m.LibraryDashboard }))
+);
+const SwissDashboard = lazy(() =>
+  import("./dashboard-swiss").then((m) => ({ default: m.SwissDashboard }))
+);
 
 type DashboardSummaryTopic = { course_code: string; status: string };
 
 export default function Dashboard() {
   const settings = useAppSettings();
   const theme = normalizeTheme(settings.data?.theme);
-  if (theme === "terminal") return <TerminalDashboard />;
-  if (theme === "zine") return <ZineDashboard />;
-  if (theme === "library") return <LibraryDashboard />;
-  if (theme === "swiss") return <SwissDashboard />;
-  return <EditorialDashboard />;
+  // The chunk for the active theme is fetched on first render of that theme.
+  // Inner Suspense (added in AppShell on 2026-04-28) catches and renders a
+  // brief spinner while it loads. Editorial is eagerly imported (it's just
+  // EditorialDashboard, defined below in this same file) so it's instant.
+  if (theme === "editorial") return <EditorialDashboard />;
+  return (
+    <Suspense fallback={<DashboardLoading />}>
+      {theme === "terminal" && <TerminalDashboard />}
+      {theme === "zine" && <ZineDashboard />}
+      {theme === "library" && <LibraryDashboard />}
+      {theme === "swiss" && <SwissDashboard />}
+    </Suspense>
+  );
+}
+
+function DashboardLoading() {
+  return (
+    <div className="min-h-[40dvh] flex items-center justify-center">
+      <Loader2 className="h-4 w-4 animate-spin text-muted" />
+    </div>
+  );
 }
 
 function EditorialDashboard() {
