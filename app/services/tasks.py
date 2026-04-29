@@ -3,7 +3,7 @@ from typing import List, Optional
 
 from .. import db
 from ..schemas import Task, TaskCreate, TaskPatch
-from ._helpers import model_dump_clean
+from ._helpers import model_dump_clean, validated_cols
 
 
 async def list_tasks(
@@ -40,7 +40,7 @@ async def list_tasks(
 
 async def create_task(payload: TaskCreate) -> Task:
     data = model_dump_clean(payload)
-    cols = list(data.keys())
+    cols = validated_cols(TaskCreate, data)
     placeholders = ", ".join(["%s"] * len(cols))
     row = await db.fetchrow(
         f"INSERT INTO tasks ({', '.join(cols)}) "
@@ -61,7 +61,9 @@ async def update_task(task_id: str, patch: TaskPatch) -> Task:
     elif data.get("status") in ("open", "in_progress", "blocked", "skipped"):
         # Clear completed_at when moving back out of done.
         data["completed_at"] = None
-    cols = list(data.keys())
+    # Validate against Task (the read model, superset of all DB columns) since
+    # `completed_at` is injected here but isn't on TaskPatch.
+    cols = validated_cols(Task, data)
     set_clause = ", ".join(f"{c} = %s" for c in cols)
     row = await db.fetchrow(
         f"UPDATE tasks SET {set_clause} WHERE id = %s RETURNING *",
