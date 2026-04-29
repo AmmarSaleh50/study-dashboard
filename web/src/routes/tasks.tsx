@@ -37,7 +37,7 @@ export default function Tasks({ initialTab = "tasks" }: { initialTab?: Tab }) {
 
   function switchTab(next: Tab) {
     setTab(next);
-    navigate(next === "tasks" ? "/tasks" : "/deliverables", { replace: true });
+    navigate(next === "tasks" ? "/app/tasks" : "/app/deliverables", { replace: true });
   }
 
   const subtitle =
