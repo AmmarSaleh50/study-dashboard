@@ -33,10 +33,10 @@ from .routers import (
 def create_app() -> FastAPI:
     settings = get_settings()
 
-    # _AutoStartMcpApp enters the session manager's lifespan on first
-    # request and keeps it open. This sidesteps having to chain the MCP
-    # lifespan into FastAPI's, which is fragile under some serverless
-    # runtimes that don't fire ASGI lifespan events at all.
+    # build_mcp_http_app() returns a per-request handler that spins up a
+    # fresh MCP server + lifespan context for every inbound request.
+    # Heavy compared to a long-lived session manager, but bulletproof
+    # under ASGI runtimes that don't fire lifespan events reliably.
     mcp_app = build_mcp_http_app()
 
     # /api/docs (Swagger UI) and /api/openapi.json off by default. The schema

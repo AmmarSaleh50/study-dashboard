@@ -6,17 +6,16 @@ to wire every tool onto the FastMCP instance.
 Auth: Bearer access tokens issued by our OAuth AS (app/services/oauth.py).
 
 Note on lifespan: some serverless runtimes do NOT invoke ASGI
-lifespan events, so FastMCP's StreamableHTTPSessionManager never gets its
-task group started via the normal path. The `_AutoStartMcpApp` wrapper below
-enters `session_manager.run()` lazily on the first request and keeps it alive
-in process-level state for the lifetime of the warm Lambda.
+lifespan events reliably, so FastMCP's StreamableHTTPSessionManager never
+gets its task group started via the normal path. `_per_request_mcp_app`
+below sidesteps this by rebuilding the FastMCP server + entering its
+lifespan context fresh on every inbound request. Heavy compared to a
+long-lived session manager, but bulletproof.
 """
 from __future__ import annotations
 
-import asyncio
 import logging
-from contextlib import AsyncExitStack
-from typing import Any, Optional
+from typing import Optional
 
 from mcp.server.auth.provider import AccessToken, TokenVerifier
 from mcp.server.auth.settings import AuthSettings
@@ -53,63 +52,6 @@ def _public_origin() -> str:
     if s.public_url:
         return s.public_url.rstrip("/")
     return "http://localhost:8000"
-
-
-class _AutoStartMcpApp:
-    """ASGI wrapper that enters the MCP session manager's lifespan on first
-    request and keeps it open across subsequent invocations.
-
-    Works whether or not the host runtime fires ASGI lifespan events.
-    Idempotent: if lifespan did already run, the second entry short-circuits
-    via `_started`.
-    """
-
-    def __init__(self, inner: Any):
-        self._inner = inner
-        self._stack: Optional[AsyncExitStack] = None
-        self._started = False
-        self._lock: Optional[asyncio.Lock] = None
-
-    async def _ensure_started(self) -> None:
-        if self._started:
-            return
-        if self._lock is None:
-            self._lock = asyncio.Lock()
-        async with self._lock:
-            if self._started:
-                return
-            stack = AsyncExitStack()
-            await stack.__aenter__()
-            await stack.enter_async_context(
-                self._inner.router.lifespan_context(self._inner)
-            )
-            self._stack = stack
-            self._started = True
-
-    async def __call__(self, scope: dict, receive: Any, send: Any) -> None:
-        # Lifespan scope: let the inner app handle it normally (no-op on
-        # runtimes that don't fire it).
-        if scope["type"] == "lifespan":
-            await self._inner(scope, receive, send)
-            return
-        try:
-            await self._ensure_started()
-            await self._inner(scope, receive, send)
-        except Exception:
-            # Log the full traceback server-side so we can debug, but
-            # NEVER return it to the client — it can leak internal paths,
-            # DSN fragments, env values that wound up in error messages,
-            # version info, etc. Clients see a generic 500.
-            log.exception("MCP handler error")
-            body = b"MCP handler error. Server-side details have been logged."
-            await send(
-                {
-                    "type": "http.response.start",
-                    "status": 500,
-                    "headers": [(b"content-type", b"text/plain; charset=utf-8")],
-                }
-            )
-            await send({"type": "http.response.body", "body": body})
 
 
 _SERVER_INSTRUCTIONS = """\
@@ -213,9 +155,9 @@ async def _per_request_mcp_app(scope, receive, send) -> None:
         async with inner.router.lifespan_context(inner):
             await inner(scope, receive, send)
     except Exception:
-        # Same pattern as `_AutoStartMcpApp.__call__`: log server-side, never
-        # echo the traceback to the client (it can leak internal paths, DSN
-        # fragments, env values that wound up in error messages, etc.).
+        # Log server-side, never echo the traceback to the client (it can
+        # leak internal paths, DSN fragments, env values that wound up in
+        # error messages, etc.).
         log.exception("MCP handler error (per-request)")
         body = b"MCP handler error. Server-side details have been logged."
         try:
