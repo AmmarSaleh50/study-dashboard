@@ -2,8 +2,8 @@ from datetime import datetime, timezone
 from typing import List, Optional
 
 from .. import db
-from ..schemas import LectureTopicsAdd, StudyTopic, StudyTopicCreate, StudyTopicPatch
-from ._helpers import model_dump_clean
+from ..schemas import LectureTopicsAdd, LectureCreate, StudyTopic, StudyTopicCreate, StudyTopicPatch
+from ._helpers import model_dump_clean, validated_cols
 
 
 async def list_study_topics(
@@ -27,7 +27,7 @@ async def list_study_topics(
 
 async def create_study_topic(payload: StudyTopicCreate) -> StudyTopic:
     data = model_dump_clean(payload)
-    cols = list(data.keys())
+    cols = validated_cols(StudyTopicCreate, data)
     placeholders = ", ".join(["%s"] * len(cols))
     row = await db.fetchrow(
         f"INSERT INTO study_topics ({', '.join(cols)}) "
@@ -45,7 +45,9 @@ async def update_study_topic(topic_id: str, patch: StudyTopicPatch) -> StudyTopi
         raise ValueError("empty patch")
     if data.get("status") in ("studied", "mastered"):
         data["last_reviewed_at"] = datetime.now(timezone.utc).isoformat()
-    cols = list(data.keys())
+    # Validate against StudyTopic (the read model, superset of all DB columns)
+    # since `last_reviewed_at` is injected here but isn't on StudyTopicPatch.
+    cols = validated_cols(StudyTopic, data)
     set_clause = ", ".join(f"{c} = %s" for c in cols)
     row = await db.fetchrow(
         f"UPDATE study_topics SET {set_clause} WHERE id = %s RETURNING *",
@@ -98,7 +100,7 @@ async def add_lecture_topics(payload: LectureTopicsAdd) -> List[StudyTopic]:
         lecture_id = payload.lecture_id
         if payload.create_lecture and not lecture_id:
             lec_data = model_dump_clean(payload.create_lecture)
-            lec_cols = list(lec_data.keys())
+            lec_cols = validated_cols(LectureCreate, lec_data)
             lec_placeholders = ", ".join(["%s"] * len(lec_cols))
             await cur.execute(
                 f"INSERT INTO lectures ({', '.join(lec_cols)}) "
@@ -118,7 +120,7 @@ async def add_lecture_topics(payload: LectureTopicsAdd) -> List[StudyTopic]:
         #    of executemany (which needs fixed columns). All inserts share
         #    this transaction.
         for row in topic_rows:
-            cols = list(row.keys())
+            cols = validated_cols(StudyTopicCreate, row)
             placeholders = ", ".join(["%s"] * len(cols))
             await cur.execute(
                 f"INSERT INTO study_topics ({', '.join(cols)}) "
