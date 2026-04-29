@@ -28,6 +28,9 @@ _dev/
 # playwright MCP runtime scratch (snapshots, console dumps)
 .playwright-mcp/
 
+# state-of-the-codebase audit docs — local working notes, not for the public repo
+_state/
+
 # python
 __pycache__/
 *.py[cod]
