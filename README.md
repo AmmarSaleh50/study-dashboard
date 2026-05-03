@@ -1,3 +1,5 @@
+[![MseeP.ai Security Assessment Badge](https://mseep.net/pr/openstudy-dev-openstudy-badge.png)](https://mseep.ai/app/openstudy-dev-openstudy)
+
 <p align="right"><sub><a href="#deutsch">🇩🇪 Auf Deutsch lesen ↓</a></sub></p>
 
 <p align="center">
