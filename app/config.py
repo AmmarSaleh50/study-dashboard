@@ -35,6 +35,8 @@ class Settings(BaseSettings):
     login_attempts_window_min: int = 10
     login_attempts_max: int = 5
 
+    secrets_encryption_key: str = Field(default="", description="Fernet master key (mint with cryptography.fernet.Fernet.generate_key())")
+
     @property
     def cors_origins_list(self) -> List[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]

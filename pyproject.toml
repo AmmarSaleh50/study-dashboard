@@ -20,6 +20,7 @@ dependencies = [
   "pillow>=10.4",
   "pyotp>=2.9",
   "psycopg[binary,pool]>=3.2",
+  "cryptography>=42",
 ]
 
 [tool.uv]
