@@ -3,6 +3,7 @@
 Coverage: get_dashboard, get_fall_behind, now_here.
 """
 import pytest
+from datetime import date, timedelta
 
 from tests.mcp._harness import get_tool_fn
 
@@ -51,6 +52,39 @@ async def test_get_fall_behind_empty(client, db_conn, mcp_server):
     for entry in result:
         assert entry.get("severity") in {"ok", "warn", "critical", None}
         assert entry.get("severity") != "critical"
+
+
+@pytest.mark.asyncio
+async def test_get_fall_behind_with_lagged_topics(client, db_conn, mcp_server):
+    """get_fall_behind returns warn/critical when unstudied topics are overdue.
+
+    Creates a course with one study topic covered more than 48 hours ago
+    (BEHIND_GRACE_HOURS) and still in 'not_started' status.  The tool must
+    return a non-ok severity for that course.
+    """
+    create_course = get_tool_fn(mcp_server, "create_course")
+    create_study_topic = get_tool_fn(mcp_server, "create_study_topic")
+    get_fall_behind = get_tool_fn(mcp_server, "get_fall_behind")
+
+    await create_course(code="FBTST", full_name="Fall Behind Test")
+
+    # covered_on 5 days ago — well past the 48-hour grace window.
+    five_days_ago = (date.today() - timedelta(days=5)).isoformat()
+    await create_study_topic(
+        course_code="FBTST",
+        name="Lagged Topic",
+        covered_on=five_days_ago,
+        status="not_started",
+    )
+
+    result = await get_fall_behind()
+    fbtst_entries = [e for e in result if e.get("course_code") == "FBTST"]
+    assert len(fbtst_entries) == 1
+    entry = fbtst_entries[0]
+    assert entry["severity"] in ("warn", "critical"), (
+        f"Expected warn or critical for a lagged course, got {entry['severity']!r}"
+    )
+    assert len(entry["topics"]) >= 1
 
 
 @pytest.mark.asyncio

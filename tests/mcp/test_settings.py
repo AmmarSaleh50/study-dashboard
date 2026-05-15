@@ -62,3 +62,30 @@ async def test_update_empty_patch_is_noop(client, db_conn, mcp_server):
     assert result["timezone"] == "UTC"
     assert result["locale"] == "en-US"
     assert result["display_name"] is None
+
+
+@pytest.mark.asyncio
+async def test_update_single_field_does_not_overwrite_others(client, db_conn, mcp_server):
+    """Patching one field leaves all other fields unchanged (P2 regression lock-in).
+
+    The MCP wrapper passes every parameter as-is into AppSettingsPatch — if
+    the service used `exclude_none=False`, updating `display_name` would null
+    out `monogram`.  The service's `exclude_none=True` prevents that; this
+    test locks in the contract at the MCP layer.
+    """
+    update_app_settings = get_tool_fn(mcp_server, "update_app_settings")
+    get_app_settings = get_tool_fn(mcp_server, "get_app_settings")
+
+    # Establish a row with two populated fields.
+    await update_app_settings(display_name="Ammar", monogram="AS", timezone="UTC", locale="en-US")
+
+    # Now patch ONLY display_name (omit monogram entirely).
+    result = await update_app_settings(display_name="Changed", timezone="UTC", locale="en-US")
+    assert result["display_name"] == "Changed"
+    # monogram was NOT passed → must be preserved, not nulled out.
+    assert result["monogram"] == "AS"
+
+    # Re-fetch to confirm persistence, not just return-value.
+    fetched = await get_app_settings()
+    assert fetched["display_name"] == "Changed"
+    assert fetched["monogram"] == "AS"
