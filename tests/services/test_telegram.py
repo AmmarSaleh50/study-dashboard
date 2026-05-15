@@ -17,11 +17,13 @@ async def test_dispatch_unknown_command_returns_help_pointer():
 
 
 @pytest.mark.asyncio
-async def test_dispatch_start_command_returns_greeting():
+async def test_dispatch_start_command_returns_help_text():
+    """/start should mirror /help (same help text)."""
     from app.services import telegram as svc
     out = await svc.handle_command("/start", chat_id=1)
+    out_help = await svc.handle_command("/help", chat_id=1)
     assert isinstance(out, str)
-    assert "openstudy" in out.lower() or "study" in out.lower()
+    assert out == out_help, "/start should return the same text as /help"
 
 
 @pytest.mark.asyncio

@@ -44,7 +44,7 @@ async def handle_command(text: str, chat_id: int) -> str:
     if cmd in ("/start", "/help"):
         state = "⏸ paused" if PAUSE_FLAG.exists() else "▶ active"
         return (
-            "OpenStudy bot — available commands:\n"
+            "Available commands:\n"
             "/sync — pull new files from Moodle now (~8s, works whether paused or not)\n"
             "/pause — pause the 30-min auto-cron\n"
             "/resume — re-enable the 30-min auto-cron\n"
