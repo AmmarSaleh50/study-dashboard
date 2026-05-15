@@ -85,3 +85,9 @@ scripts/_purge_old_moodle.py
 scripts/_set_password.py
 scripts/n8n-workflows/
 scripts/_deprecated/
+
+# Implementation plans (from the writing-plans skill). Live alongside code in
+# docs/superpowers/plans/ but kept private — these spell out internal
+# architecture decisions ahead of public release.
+docs/superpowers/
+
