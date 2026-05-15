@@ -169,7 +169,7 @@ async def test_login_rate_limit_then_success(https_client, db_conn):
     # Clear the limiter by deleting attempts on the same conn the limiter
     # reads through (the test's _TxnPool — see conftest).
     async with db_conn.connection() as conn, conn.cursor() as cur:
-        await cur.execute("DELETE FROM login_attempts")
+        await cur.execute("DELETE FROM auth_attempts")
 
     # Correct password now succeeds.
     ok = await https_client.post(

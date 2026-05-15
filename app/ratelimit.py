@@ -1,14 +1,18 @@
-"""Simple DB-backed rate limiter for /login.
+"""DB-backed rate limiter for /auth/* endpoints.
 
-We record each attempt (ip, at, ok). If too many failed attempts from a single IP
-within the window, reject with 429.
+Today: covers /auth/login. Phase 3 extends to /auth/signup, /auth/forgot.
+Per-IP only today — Phase 3 adds per-account lockout.
 """
 from datetime import datetime, timedelta, timezone
+from typing import Literal
 
 from fastapi import HTTPException, Request, status
 
 from . import db
 from .config import get_settings
+
+
+Kind = Literal["login", "signup", "reset"]
 
 
 def client_ip(request: Request) -> str:
@@ -33,28 +37,33 @@ def client_ip(request: Request) -> str:
     return "unknown"
 
 
-async def check_login_rate(request: Request) -> None:
+async def check_auth_rate(request: Request, kind: Kind = "login") -> None:
     s = get_settings()
     ip = client_ip(request)
     since = datetime.now(timezone.utc) - timedelta(minutes=s.login_attempts_window_min)
-
     failures = await db.fetchval(
-        "SELECT count(*) FROM login_attempts "
-        "WHERE ip = %s AND ok = false AND at >= %s",
-        ip, since,
+        "SELECT count(*) FROM auth_attempts "
+        "WHERE ip = %s AND kind = %s AND ok = false AND at >= %s",
+        ip, kind, since,
     )
     failures = failures or 0
     if failures >= s.login_attempts_max:
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail=f"too many login attempts; try again in {s.login_attempts_window_min} min",
+            detail=f"too many {kind} attempts; try again in {s.login_attempts_window_min} min",
         )
 
 
-async def record_login_attempt(request: Request, ok: bool) -> None:
+async def record_auth_attempt(request: Request, ok: bool, kind: Kind = "login") -> None:
     ip = client_ip(request)
     ua = request.headers.get("user-agent", "")[:200]
     await db.execute(
-        "INSERT INTO login_attempts (ip, ok, user_agent) VALUES (%s, %s, %s)",
-        ip, ok, ua,
+        "INSERT INTO auth_attempts (ip, ok, kind, user_agent) VALUES (%s, %s, %s, %s)",
+        ip, ok, kind, ua,
     )
+
+
+# Back-compat aliases — let existing /auth/login callers continue to use the
+# old names. Removed in Phase 3 once signup endpoint exists.
+check_login_rate = check_auth_rate
+record_login_attempt = record_auth_attempt
