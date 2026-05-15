@@ -1,17 +1,17 @@
 from fastapi import APIRouter, Depends
 
-from ..auth import require_auth
+from ..auth import require_auth, SENTINEL_USER_ID
 from ..schemas import AppSettings, AppSettingsPatch
-from ..services import settings as svc
+from ..intents import settings as intent
 
 router = APIRouter(prefix="/settings", tags=["settings"])
 
 
 @router.get("", response_model=AppSettings)
 async def get(_: bool = Depends(require_auth)) -> AppSettings:
-    return await svc.get_settings()
+    return await intent.get_settings(SENTINEL_USER_ID)
 
 
 @router.patch("", response_model=AppSettings)
 async def patch(body: AppSettingsPatch, _: bool = Depends(require_auth)) -> AppSettings:
-    return await svc.update_settings(body)
+    return await intent.update_settings(SENTINEL_USER_ID, body)

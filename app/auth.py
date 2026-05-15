@@ -1,5 +1,6 @@
 from datetime import datetime, timezone, timedelta
 from typing import Optional
+from uuid import UUID
 
 import pyotp
 from fastapi import Cookie, HTTPException, Response, status
@@ -9,6 +10,11 @@ from argon2.exceptions import VerifyMismatchError
 
 from . import db
 from .config import get_settings
+
+# Sentinel for Phase 0 — single-operator deployment. Task 9 of Phase 0
+# wraps this in a User dataclass; Phase 1 replaces it with a real users.id
+# lookup off the session cookie.
+SENTINEL_USER_ID = UUID("00000000-0000-0000-0000-000000000001")
 
 COOKIE_NAME = "study_session"
 _ph = PasswordHasher()

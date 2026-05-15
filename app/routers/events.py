@@ -2,9 +2,9 @@ from datetime import datetime
 from typing import List, Optional
 from fastapi import APIRouter, Depends
 
-from ..auth import require_auth
+from ..auth import require_auth, SENTINEL_USER_ID
 from ..schemas import Event, EventCreate
-from ..services import events as svc
+from ..intents import events as intent
 
 router = APIRouter(prefix="/events", tags=["events"])
 
@@ -17,9 +17,9 @@ async def list_(
     limit: int = 100,
     _: bool = Depends(require_auth),
 ) -> List[Event]:
-    return await svc.list_events(since=since, kind=kind, course_code=course_code, limit=limit)
+    return await intent.list_events(SENTINEL_USER_ID, since=since, kind=kind, course_code=course_code, limit=limit)
 
 
 @router.post("", response_model=Event)
 async def create(body: EventCreate, _: bool = Depends(require_auth)) -> Event:
-    return await svc.record_event(body)
+    return await intent.record_event(SENTINEL_USER_ID, body)

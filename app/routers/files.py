@@ -26,9 +26,8 @@ from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request
 from fastapi.responses import FileResponse
 
 from .. import db
-from ..auth import require_auth
-from ..services import file_index as file_index_svc
-from ..services import storage as storage_svc
+from ..auth import require_auth, SENTINEL_USER_ID
+from ..intents import files as intent
 
 
 _UMLAUT_MAP = str.maketrans({
@@ -58,7 +57,7 @@ async def list_files(prefix: str = Query(default=""), limit: int = Query(default
     a folder's path as the next prefix. Returns a sorted list of
     {name, path, type, size?, content_type?, updated_at?}."""
     clean = (prefix or "").strip().strip("/")
-    entries = await storage_svc.list_files(prefix=clean, limit=limit)
+    entries = await intent.list_files(SENTINEL_USER_ID, clean, limit=limit)
     out: list[dict[str, Any]] = []
     for e in entries:
         name = e.get("name") or ""
@@ -91,7 +90,7 @@ async def signed_url(path: str = Query(...), expires_in: int = Query(default=360
     if not path or ".." in path:
         raise HTTPException(400, "invalid path")
     try:
-        url = await storage_svc.signed_url(path, expires_in=expires_in)
+        url = await intent.signed_url(SENTINEL_USER_ID, path, expires_in)
     except Exception as exc:
         raise HTTPException(404, f"not found: {exc}") from exc
     return {"url": url, "expires_in": expires_in}
@@ -113,7 +112,7 @@ async def upload_url(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
     if not key:
         raise HTTPException(400, "path empty after sanitisation")
     try:
-        result = await storage_svc.signed_upload_url(key)
+        result = await intent.signed_upload_url(SENTINEL_USER_ID, key)
     except Exception as exc:
         raise HTTPException(500, f"failed to sign upload: {exc}") from exc
     return result
@@ -137,19 +136,19 @@ async def delete(
     key = _safe_key(path)
     if kind == "file":
         try:
-            await storage_svc.delete([key])
+            await intent.delete(SENTINEL_USER_ID, [key])
         except Exception as exc:
             raise HTTPException(500, f"failed to delete: {exc}") from exc
         return {"deleted": [key]}
 
     try:
-        children = await storage_svc.list_recursive(key)
+        children = await intent.list_recursive(SENTINEL_USER_ID, key)
     except Exception as exc:
         raise HTTPException(500, f"failed to list folder: {exc}") from exc
     if not children:
         return {"deleted": []}
     try:
-        await storage_svc.delete(children)
+        await intent.delete(SENTINEL_USER_ID, children)
     except Exception as exc:
         raise HTTPException(500, f"failed to delete folder: {exc}") from exc
     return {"deleted": children}
@@ -167,7 +166,7 @@ async def create_folder(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
         raise HTTPException(400, "path empty after sanitisation")
     placeholder = f"{key}/.keep"
     try:
-        await storage_svc.upload(placeholder, b"", content_type="application/octet-stream")
+        await intent.upload(SENTINEL_USER_ID, placeholder, b"", content_type="application/octet-stream")
     except Exception as exc:
         raise HTTPException(500, f"failed to create folder: {exc}") from exc
     return {"folder": key, "placeholder": placeholder}
@@ -195,14 +194,14 @@ async def move(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
         return {"moved": []}
     if kind == "file":
         try:
-            await storage_svc.move(src, dst)
+            await intent.move(SENTINEL_USER_ID, src, dst)
         except Exception as exc:
             raise HTTPException(500, f"failed to move: {exc}") from exc
         return {"moved": [{"from": src, "to": dst}]}
 
     # folder: list children, move each preserving relative path
     try:
-        children = await storage_svc.list_recursive(src)
+        children = await intent.list_recursive(SENTINEL_USER_ID, src)
     except Exception as exc:
         raise HTTPException(500, f"failed to list folder: {exc}") from exc
     moved: list[dict[str, str]] = []
@@ -210,7 +209,7 @@ async def move(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
         rel = child[len(src) :].lstrip("/")
         new_path = f"{dst}/{rel}" if rel else dst
         try:
-            await storage_svc.move(child, new_path)
+            await intent.move(SENTINEL_USER_ID, child, new_path)
             moved.append({"from": child, "to": new_path})
         except Exception as exc:
             raise HTTPException(
@@ -236,7 +235,7 @@ async def lecture_materials(course_code: str = Query(...)) -> dict[str, list[dic
     folder = (row.get("folder_name") or "").strip() or course_code.upper()
     try:
         # list_recursive returns full keys under the prefix
-        keys = await storage_svc.list_recursive(folder)
+        keys = await intent.list_recursive(SENTINEL_USER_ID, folder)
     except Exception as exc:
         raise HTTPException(500, f"course tree list failed: {exc}") from exc
 
@@ -264,7 +263,7 @@ async def search(q: str = Query(..., min_length=2), limit: int = Query(20, le=10
     Returns ranked matches with snippets. Match terms are wrapped in
     `<<…>>` markers in the snippet so the frontend can highlight them.
     """
-    return await file_index_svc.search(q, limit=limit)
+    return await intent.search(SENTINEL_USER_ID, q, limit)
 
 
 @router.get("/raw")
@@ -276,7 +275,7 @@ async def raw_file(path: str = Query(...)):
     """
     if not path or ".." in path:
         raise HTTPException(400, "invalid path")
-    meta = await storage_svc.stat(path)
+    meta = await intent.stat(SENTINEL_USER_ID, path)
     if not meta:
         raise HTTPException(404, f"not found: {path}")
     # Resolve via the storage layer so the same traversal guard applies
@@ -313,7 +312,7 @@ async def upload_target(request: Request, path: str = Query(...)) -> dict[str, A
         raise HTTPException(400, "empty body")
     content_type = request.headers.get("content-type") or "application/octet-stream"
     try:
-        result = await storage_svc.upload(key, body, content_type=content_type)
+        result = await intent.upload(SENTINEL_USER_ID, key, body, content_type)
     except Exception as exc:
         raise HTTPException(500, f"upload failed: {exc}") from exc
     return result
