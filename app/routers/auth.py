@@ -1,10 +1,9 @@
 import pyotp
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 
-from .. import db
+from ..services import totp as totp_svc
 from ..auth import (
     clear_session,
-    get_totp_state,
     is_totp_required,
     issue_session,
     optional_auth,
@@ -63,13 +62,7 @@ async def totp_setup(_: bool = Depends(require_auth)) -> TotpSetupResponse:
     # Upsert: on a fresh DB the singleton row may not exist yet, in which case
     # a bare UPDATE silently matches zero rows and the secret is lost — the
     # caller then sees 200 here but a 400 on /enable. Fixed via ON CONFLICT.
-    await db.execute(
-        "INSERT INTO app_settings (id, totp_secret, totp_enabled) "
-        "VALUES (1, %s, false) "
-        "ON CONFLICT (id) DO UPDATE "
-        "SET totp_secret = EXCLUDED.totp_secret, totp_enabled = false",
-        secret,
-    )
+    await totp_svc.set_pending(secret)
     uri = pyotp.TOTP(secret).provisioning_uri(name="admin", issuer_name="OpenStudy")
     return TotpSetupResponse(secret=secret, provisioning_uri=uri)
 
@@ -77,15 +70,13 @@ async def totp_setup(_: bool = Depends(require_auth)) -> TotpSetupResponse:
 @router.post("/totp/enable", response_model=SessionInfo)
 async def totp_enable(body: TotpVerifyRequest, _: bool = Depends(require_auth)) -> SessionInfo:
     """Confirm setup by submitting a 6-digit code from the authenticator."""
-    enabled, secret = await get_totp_state()
+    enabled, secret = await totp_svc.get_state()
     if not secret:
         raise HTTPException(400, "no pending TOTP secret — call /setup first")
     code = body.code.strip().replace(" ", "")
     if not pyotp.TOTP(secret).verify(code, valid_window=1):
         raise HTTPException(401, "invalid code")
-    await db.execute(
-        "UPDATE app_settings SET totp_enabled = true WHERE id = 1"
-    )
+    await totp_svc.enable()
     return SessionInfo(authed=True, totp_enabled=True)
 
 
@@ -94,7 +85,5 @@ async def totp_disable(body: TotpVerifyRequest, _: bool = Depends(require_auth))
     """Disable TOTP. Must verify a current code so a stolen session can't disable."""
     if not await verify_totp(body.code):
         raise HTTPException(401, "invalid code")
-    await db.execute(
-        "UPDATE app_settings SET totp_enabled = false, totp_secret = NULL WHERE id = 1"
-    )
+    await totp_svc.disable()
     return SessionInfo(authed=True, totp_enabled=False)

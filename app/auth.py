@@ -91,16 +91,9 @@ def in_window(dt: datetime, minutes: int) -> bool:
 # ── TOTP (RFC 6238) ─────────────────────────────────────────────────────────
 
 async def get_totp_state() -> tuple[bool, Optional[str]]:
-    """Return (totp_enabled, totp_secret). Single-row app_settings table."""
-    try:
-        row = await db.fetchrow(
-            "SELECT totp_enabled, totp_secret FROM app_settings WHERE id = 1 LIMIT 1"
-        )
-        if row:
-            return bool(row.get("totp_enabled")), row.get("totp_secret")
-    except Exception:
-        pass
-    return False, None
+    """Compatibility shim — delegates to app.services.totp."""
+    from .services import totp as totp_svc
+    return await totp_svc.get_state()
 
 
 async def is_totp_required() -> bool:
@@ -109,7 +102,6 @@ async def is_totp_required() -> bool:
 
 
 async def verify_totp(code: Optional[str]) -> bool:
-    """Validate a 6-digit TOTP code against the stored secret. ±1 step window."""
     if not code:
         return False
     code = code.strip().replace(" ", "")
