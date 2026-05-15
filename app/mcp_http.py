@@ -29,7 +29,7 @@ from .services import oauth as oauth_svc
 log = logging.getLogger(__name__)
 
 
-class PostgrestTokenVerifier(TokenVerifier):
+class OAuthTokenVerifier(TokenVerifier):
     def __init__(self, resource: str):
         self._resource = resource
 
@@ -117,7 +117,7 @@ def _build_server() -> FastMCP:
     server = FastMCP(
         "openstudy",
         instructions=_SERVER_INSTRUCTIONS,
-        token_verifier=PostgrestTokenVerifier(resource_url),
+        token_verifier=OAuthTokenVerifier(resource_url),
         auth=AuthSettings(
             issuer_url=origin,
             resource_server_url=resource_url,

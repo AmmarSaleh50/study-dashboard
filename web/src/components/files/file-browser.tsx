@@ -62,7 +62,7 @@ export function FileBrowser({
 
   const { data, isPending, error } = useFilesList(prefix);
   // Hide the .keep placeholder we drop into empty folders so they survive
-  // Supabase's no-real-folders model.
+  // the filesystem's flat-file model (no true directory entries until a file exists).
   const visible = (data ?? []).filter((e) => e.name !== ".keep");
 
   async function onUpload(e: React.ChangeEvent<HTMLInputElement>) {

@@ -1,6 +1,6 @@
 # Install OpenStudy
 
-End-to-end self-hosting guide. The whole stack — Postgres, PostgREST, the
+End-to-end self-hosting guide. The whole stack — Postgres, the
 FastAPI backend, the static frontend, and a reverse proxy with TLS — runs
 on a single Docker host. Anything that runs Docker works: a small VPS, a
 home server, a spare laptop.
@@ -58,7 +58,7 @@ OpenStudy reads two env files, both kept out of git:
 - **`.env`** — application secrets used by the FastAPI container
   (login password hash, session secret, optional integrations).
 - **`.env.docker`** — Postgres credentials only, used to spin up the
-  database and PostgREST containers.
+  database container.
 
 Create them:
 
@@ -104,7 +104,7 @@ public URL the app advertises in OAuth flows.
 4. Starts the Postgres container, waits for `pg_isready`.
 5. Runs `scripts/run_migrations.py` against Postgres (idempotent — re-applies
    nothing that's already been recorded in the `_migrations` table).
-6. Starts the PostgREST container, then the openstudy container.
+6. Starts the openstudy container.
 7. Polls `GET http://127.0.0.1:8000/api/health` for up to 60 s.
 8. **Pass:** prunes dangling images, exits 0.
    **Fail:** re-tags `:previous` as `:latest`, recreates the container, waits
@@ -117,8 +117,8 @@ curl http://127.0.0.1:8000/api/health
 # → {"ok":true,"version":"...","db":"ok","storage":"ok ..."}
 ```
 
-You should also see three running containers (`openstudy`, `openstudy-postgres`,
-`openstudy-postgrest`) when you run `./deploy.sh --status`.
+You should also see the running containers (`openstudy`, `openstudy-postgres`,
+`openstudy-frontend`) when you run `./deploy.sh --status`.
 
 ### Restoring data into a fresh box
 
@@ -281,7 +281,7 @@ docker compose --env-file .env.docker up -d --force-recreate openstudy
 ### Updating the docker images
 
 ```bash
-docker compose --env-file .env.docker pull   # postgres + postgrest
+docker compose --env-file .env.docker pull   # postgres
 ./deploy.sh                                   # rebuilds openstudy
 ```
 

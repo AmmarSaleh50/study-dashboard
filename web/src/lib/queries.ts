@@ -180,8 +180,8 @@ export function useUpdateAppSettings() {
       api.patch<AppSettings>("/api/settings", patch),
     onSuccess: (data) => {
       qc.setQueryData(qk.settings, data);
-      // Force a refetch too — if PostgREST's schema cache lags after a
-      // migration, the PATCH response can miss newly-added columns.
+      // Force a refetch too — the PATCH response may miss newly-added columns
+      // if the server returned a stale row before the migration fully propagated.
       qc.invalidateQueries({ queryKey: qk.settings });
     },
   });

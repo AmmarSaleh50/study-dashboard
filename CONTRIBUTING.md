@@ -21,7 +21,7 @@ Basically anything that makes the app better for someone self-hosting it. A non-
 Not "no" — just "let's talk first so you don't waste a weekend":
 
 - Major framework swaps (React → Svelte, FastAPI → Django).
-- Replacing PostgREST with a hand-rolled SQLAlchemy / asyncpg layer (the postgrest-py shim is small but it's load-bearing — every service file goes through it).
+- Replacing the `psycopg` async pool with a different DB driver (SQLAlchemy, asyncpg, etc.) — the pool is small but it's load-bearing; every service file goes through it.
 - New top-level entities beyond the current data model (Course / Schedule slot / Lecture / Study topic / Deliverable / Task / Klausur).
 - Multi-user / team / sharing features — the single-user-per-deploy assumption is load-bearing in a bunch of places, and shifting it is a big project.
 
@@ -38,7 +38,7 @@ POSTGRES_USER=openstudy
 POSTGRES_PASSWORD=$(openssl rand -hex 24)
 POSTGRES_DB=openstudy
 EOF
-./deploy.sh                          # builds + brings up postgres + postgrest + openstudy
+./deploy.sh                          # builds + brings up postgres + openstudy
 
 cd web && pnpm install && pnpm dev
 ```

@@ -1,5 +1,5 @@
 # OpenStudy FastAPI backend
-# Built by ./deploy.sh, run via docker-compose alongside postgres + postgrest.
+# Built by ./deploy.sh, run via docker-compose alongside postgres.
 FROM python:3.12-slim AS base
 
 ENV PYTHONDONTWRITEBYTECODE=1 \

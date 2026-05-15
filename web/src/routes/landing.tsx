@@ -480,7 +480,6 @@ export default function Landing() {
               <span className="line"><span className="dol">$</span>vim .env.docker       <span className="cmt"># POSTGRES_USER / _PASSWORD / _DB</span></span>
               <span className="line"><span className="dol">$</span>./deploy.sh</span>
               <span className="line"><span className="out">  ✓ openstudy-postgres   (internal)</span></span>
-              <span className="line"><span className="out">  ✓ openstudy-postgrest  (internal)</span></span>
               <span className="line"><span className="out">  ✓ openstudy-api        :8000</span></span>
               <span className="line"><span className="out">  ✓ openstudy-frontend   :8080</span></span>
               <span className="line"> </span>
