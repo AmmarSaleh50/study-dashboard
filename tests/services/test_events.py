@@ -1,8 +1,9 @@
 """Tests for app/services/events.py.
 
 Events are the activity log: insert-only, ordered by created_at desc.
-The schema has no FK requirement on `kind`, but `course_code` is a soft
-FK (`ON DELETE SET NULL`) — so a referenced course must exist if supplied.
+The schema has no FK requirement on `kind` or `course_code` — the FK on
+`course_code` was dropped in migration 20260516000002 so audit logs can
+outlive their subjects (cascade deletes no longer fail).
 
 Note: the baseline schema has triggers (`trg_log_change_*`) that
 auto-insert events on every mutation of `courses`, `tasks`, etc. These
@@ -154,12 +155,15 @@ async def test_list_events_respects_limit(client, db_conn):
 
 
 @pytest.mark.asyncio
-async def test_record_event_missing_course_raises(client, db_conn):
-    """If course_code is given but no such course exists, FK fails."""
+async def test_record_event_missing_course_succeeds(client, db_conn):
+    """course_code is now denormalized informational text — no FK constraint.
+    Recording an event with a course_code that references no existing course
+    must succeed (audit logs outlive their subjects)."""
     from app.schemas import EventCreate
     from app.services import events as svc
-    with pytest.raises(Exception):
-        await svc.record_event(EventCreate(
-            kind="evt:test:fk_fail",
-            course_code="NOFKE",
-        ))
+    # This must NOT raise; the FK was dropped in 20260516000002.
+    evt = await svc.record_event(EventCreate(
+        kind="evt:test:no_fk",
+        course_code="NOFKE",
+    ))
+    assert evt.course_code == "NOFKE"
