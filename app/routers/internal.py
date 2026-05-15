@@ -10,22 +10,15 @@ The `/telegram` endpoint is special: it's authenticated by Telegram's own
 """
 import logging
 import os
-from pathlib import Path
 
 import httpx
 from fastapi import APIRouter, BackgroundTasks, Header, HTTPException, Request, status
 
 from ..services import file_index as file_index_svc
+from ..services import telegram as telegram_svc
 
 router = APIRouter(prefix="/internal", tags=["internal"])
 log = logging.getLogger(__name__)
-
-# Shared pause flag for the Moodle scrape cron. Lives on the bind-mounted
-# course-files directory so both this container and the n8n container can
-# see it (n8n sees the same file at /var/courses/.moodle_cron_paused).
-# When present, n8n's schedule-triggered runs skip the scrape; manual /sync
-# via webhook always runs regardless.
-PAUSE_FLAG = Path(os.environ.get("STUDY_ROOT", "/opt/courses")) / ".moodle_cron_paused"
 
 
 def _check_secret(provided: str | None) -> None:
@@ -79,13 +72,6 @@ def trigger_index(
     return {"ok": True, "queued": "reindex"}
 
 
-async def _send_telegram(token: str, chat_id: int, text: str) -> None:
-    async with httpx.AsyncClient(timeout=10) as client:
-        await client.post(
-            f"https://api.telegram.org/bot{token}/sendMessage",
-            json={"chat_id": chat_id, "text": text, "disable_web_page_preview": True},
-        )
-
 
 @router.post("/telegram")
 async def telegram_webhook(
@@ -119,63 +105,12 @@ async def telegram_webhook(
     if not token:
         return {"ok": False, "reason": "no bot token configured"}
 
-    cmd = text.split()[0].lower()
-
-    if cmd in ("/start", "/help"):
-        state = "⏸ paused" if PAUSE_FLAG.exists() else "▶ active"
-        await _send_telegram(token, chat_id,
-            "Available commands:\n"
-            "/sync — pull new files from Moodle now (~8s, works whether paused or not)\n"
-            "/pause — pause the 30-min auto-cron\n"
-            "/resume — re-enable the 30-min auto-cron\n"
-            "/status — show cron state\n"
-            "/help — this message\n"
-            "\n"
-            f"Cron currently: {state}"
-        )
-    elif cmd == "/sync":
-        webhook_url = os.environ.get("N8N_MOODLE_WEBHOOK_URL", "").strip()
-        if not webhook_url:
-            await _send_telegram(token, chat_id,
-                "Sync unavailable: N8N_MOODLE_WEBHOOK_URL is not configured.")
-            return {"ok": True}
-        # The n8n workflow sends its own rich HTML summary at the end of the
-        # run (same format as the scheduled cron). Bot stays quiet on success
-        # to avoid a redundant short summary; only "🔄 Syncing…" up front for
-        # instant feedback, plus error handling if the webhook itself breaks.
-        await _send_telegram(token, chat_id, "🔄 Syncing with Moodle…")
-        try:
-            async with httpx.AsyncClient(timeout=120) as client:
-                resp = await client.get(webhook_url)
-            if resp.status_code >= 400:
-                await _send_telegram(token, chat_id,
-                    f"❌ Sync webhook returned HTTP {resp.status_code}")
-        except Exception as exc:
-            await _send_telegram(token, chat_id, f"❌ Sync failed: {exc}")
-    elif cmd == "/pause":
-        try:
-            PAUSE_FLAG.parent.mkdir(parents=True, exist_ok=True)
-            PAUSE_FLAG.touch()
-            await _send_telegram(token, chat_id,
-                "⏸ Moodle cron paused. The 30-min auto-cron is suspended.\n"
-                "Use /sync to scrape now, /resume to re-enable.")
-        except Exception as exc:
-            await _send_telegram(token, chat_id, f"❌ Could not write pause flag: {exc}")
-    elif cmd == "/resume":
-        try:
-            PAUSE_FLAG.unlink(missing_ok=True)
-            await _send_telegram(token, chat_id,
-                "▶ Moodle cron resumed. Will fire on the next 30-min interval.")
-        except Exception as exc:
-            await _send_telegram(token, chat_id, f"❌ Could not remove pause flag: {exc}")
-    elif cmd == "/status":
-        paused = PAUSE_FLAG.exists()
-        state = "⏸ paused" if paused else "▶ active"
-        flag_info = f"flag at {PAUSE_FLAG}" if paused else "no pause flag"
-        await _send_telegram(token, chat_id,
-            f"📊 Moodle cron: {state}\n{flag_info}"
-        )
-    else:
-        await _send_telegram(token, chat_id, f"Unknown command: {cmd}\nTry /help")
+    reply = await telegram_svc.handle_command(text, chat_id=chat_id)
+    if reply:
+        async with httpx.AsyncClient(timeout=10) as client:
+            await client.post(
+                f"https://api.telegram.org/bot{token}/sendMessage",
+                json={"chat_id": chat_id, "text": reply, "disable_web_page_preview": True},
+            )
 
     return {"ok": True}
