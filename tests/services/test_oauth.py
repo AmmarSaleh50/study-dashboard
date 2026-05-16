@@ -318,3 +318,24 @@ async def test_verify_expired_token_returns_none(client, db_conn):
             (datetime.now(timezone.utc) - timedelta(seconds=60), token),
         )
     assert await svc.verify_access_token(token) is None
+
+
+@pytest.mark.asyncio
+async def test_bulk_revoke_invalidates_all_tokens(client, db_conn):
+    """Bulk UPDATE revoked=true (as run by the Phase-5 migration) causes
+    verify_access_token to return None for every previously-valid token."""
+    from app.services import oauth as svc
+    cli = await _register_client("Bulk Revoke")
+    token_a, _ = await svc.create_access_token(SENTINEL_USER_ID, cli["client_id"], "mcp")
+    token_b, _ = await svc.create_access_token(SENTINEL_USER_ID, cli["client_id"], "mcp")
+    # Both tokens valid before revocation.
+    assert await svc.verify_access_token(token_a) is not None
+    assert await svc.verify_access_token(token_b) is not None
+    # Mirror the migration: UPDATE oauth_tokens SET revoked = true WHERE revoked = false.
+    async with db_conn.connection() as conn, conn.cursor() as cur:
+        await cur.execute(
+            "UPDATE oauth_tokens SET revoked = true WHERE revoked = false"
+        )
+    # Both tokens must now be invalid.
+    assert await svc.verify_access_token(token_a) is None
+    assert await svc.verify_access_token(token_b) is None
