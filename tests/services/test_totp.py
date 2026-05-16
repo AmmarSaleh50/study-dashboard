@@ -3,9 +3,10 @@ import pyotp
 
 
 @pytest.mark.asyncio
-async def test_get_state_when_no_settings_row(client, db_conn):
+async def test_get_state_when_totp_disabled(client, db_conn):
     from app.services import totp as svc
-    # Fresh DB has no app_settings row (the conftest rollback ensures this).
+    # Fresh seed: users row exists but totp_secret is NULL and totp_enabled is false.
+    # get_state should return defaults (False, None).
     enabled, secret = await svc.get_state()
     assert enabled is False
     assert secret is None

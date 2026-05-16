@@ -1,8 +1,7 @@
-"""TOTP state I/O.
+"""TOTP state I/O — per-user storage.
 
-Single home for the SQL that reads/writes the TOTP secret + enabled flag.
-Phase 0: persisted to app_settings (singleton row, id=1).
-Phase 1: app_settings is keyed by user_id; uses SENTINEL_USER_ID.
+Phase 1: TOTP moved from app_settings.totp_* to users.totp_*.
+Phase 2: hardcoded SENTINEL_USER_ID becomes a real user_id parameter.
 """
 from typing import Optional
 
@@ -11,10 +10,10 @@ from ..auth import SENTINEL_USER_ID
 
 
 async def get_state() -> tuple[bool, Optional[str]]:
-    """Return (totp_enabled, totp_secret) for the current operator/user."""
+    """Return (totp_enabled, totp_secret) for the operator user."""
     try:
         row = await db.fetchrow(
-            "SELECT totp_enabled, totp_secret FROM app_settings WHERE user_id = %s LIMIT 1",
+            "SELECT totp_enabled, totp_secret FROM users WHERE id = %s LIMIT 1",
             SENTINEL_USER_ID,
         )
         if row:
@@ -25,25 +24,26 @@ async def get_state() -> tuple[bool, Optional[str]]:
 
 
 async def set_pending(secret: str) -> None:
-    """Store a fresh secret with totp_enabled=false (idempotent upsert)."""
+    """Store a fresh secret with totp_enabled=false.
+
+    The users row always exists (created by the users-table migration's
+    seed), so a plain UPDATE suffices — no upsert needed.
+    """
     await db.execute(
-        "INSERT INTO app_settings (user_id, totp_secret, totp_enabled) "
-        "VALUES (%s, %s, false) "
-        "ON CONFLICT (user_id) DO UPDATE "
-        "SET totp_secret = EXCLUDED.totp_secret, totp_enabled = false",
-        SENTINEL_USER_ID, secret,
+        "UPDATE users SET totp_secret = %s, totp_enabled = false WHERE id = %s",
+        secret, SENTINEL_USER_ID,
     )
 
 
 async def enable() -> None:
     await db.execute(
-        "UPDATE app_settings SET totp_enabled = true WHERE user_id = %s",
+        "UPDATE users SET totp_enabled = true WHERE id = %s",
         SENTINEL_USER_ID,
     )
 
 
 async def disable() -> None:
     await db.execute(
-        "UPDATE app_settings SET totp_enabled = false, totp_secret = NULL WHERE user_id = %s",
+        "UPDATE users SET totp_enabled = false, totp_secret = NULL WHERE id = %s",
         SENTINEL_USER_ID,
     )
