@@ -279,12 +279,13 @@ async def raw_file(path: str = Query(...), user: User = Depends(require_user)):
     meta = await intent.stat(user.id, path)
     if not meta:
         raise HTTPException(404, f"not found: {path}")
-    # Resolve via the storage layer so the same traversal guard applies
-    from pathlib import Path
-    root = Path(os.environ.get("STUDY_ROOT", "/opt/courses"))
-    target = (root / path.lstrip("/")).resolve()
-    if not str(target).startswith(str(root.resolve())):
-        raise HTTPException(400, "invalid path")
+    # Resolve via the storage layer so the same per-user traversal guard
+    # applies (path resolves under STUDY_ROOT/<user_id>/).
+    from ..services import storage as storage_svc
+    try:
+        target = storage_svc._safe_resolve(user.id, path)
+    except ValueError as exc:
+        raise HTTPException(400, f"invalid path: {exc}") from exc
     return FileResponse(
         path=str(target),
         media_type=meta["mimetype"],

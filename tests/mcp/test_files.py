@@ -14,9 +14,15 @@ from tests.mcp._harness import get_tool_fn
 
 @pytest.fixture
 def study_root(tmp_path, monkeypatch):
-    """Point STUDY_ROOT at a per-test directory (storage._root reads env at call time)."""
+    """Point STUDY_ROOT at a per-test directory and pre-create the sentinel
+    user's subdir. After Phase 2, storage operations resolve under
+    `STUDY_ROOT/<user_id>/`; the MCP tools pass SENTINEL_USER_ID, so the
+    files must land in that subdir for the tools to see them."""
+    from app.auth import SENTINEL_USER_ID
     monkeypatch.setenv("STUDY_ROOT", str(tmp_path))
-    return tmp_path
+    user_dir = tmp_path / str(SENTINEL_USER_ID)
+    user_dir.mkdir(parents=True, exist_ok=True)
+    return user_dir
 
 
 # ── list_course_files ────────────────────────────────────────────────────────

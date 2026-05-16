@@ -1,8 +1,14 @@
 """Filesystem-backed storage layer.
 
-Course materials live as plain files under `STUDY_ROOT` (defaults to
-`/opt/courses`). All read/write/list/move/delete operations in the app
-funnel through this module.
+Course materials live as plain files under `STUDY_ROOT/<user_id>/...`
+(STUDY_ROOT defaults to `/opt/courses`). All read/write/list/move/delete
+operations in the app funnel through this module.
+
+Every public function takes `user_id: UUID` as its first param; internally
+`_safe_resolve` prepends `<user_id>/` before resolving against STUDY_ROOT,
+so callers continue to pass user-facing relative paths like
+`"ASB/lecture1.pdf"`. Path traversal both above the user's prefix AND
+above STUDY_ROOT is rejected.
 
 `list_files` returns `{name, id, updated_at, metadata: {size, mimetype}}`
 per entry, with `id=None` marking folders so the UI can distinguish them
@@ -19,7 +25,6 @@ or writes; `_log()` writes to Postgres through the async pool.
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import mimetypes
 import os
@@ -28,8 +33,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote
+from uuid import UUID
 
-from .. import db
+from ..schemas import EventCreate
+from . import events as events_svc
 
 log = logging.getLogger(__name__)
 
@@ -38,22 +45,28 @@ def _root() -> Path:
     return Path(os.environ.get("STUDY_ROOT", "/opt/courses"))
 
 
-def _safe_resolve(rel: str) -> Path:
-    """Join `rel` under STUDY_ROOT, refusing escape via `..` or absolute path.
-    Returns the absolute path. Raises ValueError on traversal attempt."""
-    root = _root().resolve()
+def _user_root(user_id: UUID) -> Path:
+    return _root() / str(user_id)
+
+
+def _safe_resolve(user_id: UUID, rel: str) -> Path:
+    """Join `rel` under `STUDY_ROOT/<user_id>/`, refusing escape via `..`
+    or absolute path. Returns the absolute path. Raises ValueError on
+    traversal attempt (above user_root, which also catches above
+    STUDY_ROOT)."""
+    user_root = _user_root(user_id).resolve()
     rel = (rel or "").lstrip("/")
-    target = (root / rel).resolve()
-    if root != target and root not in target.parents:
-        raise ValueError(f"path escapes STUDY_ROOT: {rel!r}")
+    target = (user_root / rel).resolve()
+    if user_root != target and user_root not in target.parents:
+        raise ValueError(f"path escapes user root: {rel!r}")
     return target
 
 
 def _course_code_from_path(p: str | None) -> str | None:
     """Extract the leading path segment as a course code if it looks like one.
-    Convention: paths under STUDY_ROOT are `<COURSE_CODE>/...` where
-    COURSE_CODE is uppercase letters/digits/dashes. Returns None if the path
-    doesn't match (e.g. empty list-prefix, or a top-level file)."""
+    Paths here are user-facing (no user_id prefix), so the leading segment
+    is the course folder name. Returns None if the path doesn't match the
+    convention (e.g. empty list-prefix, or a top-level file)."""
     if not p:
         return None
     first = p.lstrip("/").split("/", 1)[0]
@@ -66,7 +79,7 @@ def _course_code_from_path(p: str | None) -> str | None:
     return None
 
 
-async def _log(kind: str, payload: dict[str, Any]) -> None:
+async def _log(user_id: UUID, kind: str, payload: dict[str, Any]) -> None:
     """Best-effort event log. Never breaks a storage op when the DB is
     having a moment — exceptions are swallowed.
 
@@ -87,28 +100,12 @@ async def _log(kind: str, payload: dict[str, Any]) -> None:
             candidate = first_path
     course_code = _course_code_from_path(candidate)
 
-    payload_json = json.dumps(payload)
-    # Wrap in a savepoint so that a swallowed error (e.g. course_code FK
-    # violation when an unknown course folder appears under STUDY_ROOT)
-    # doesn't poison the surrounding transaction. In prod each db.execute()
-    # opens its own connection so this is irrelevant; under per-test
-    # transaction isolation it's the difference between "events row missed"
-    # and "the entire test's outer transaction is aborted."
+    # Swallow errors so a flaky audit log doesn't break a storage op.
     try:
-        async with db.db() as conn:
-            async with conn.transaction():
-                if course_code:
-                    await conn.execute(
-                        "INSERT INTO events (kind, course_code, payload) "
-                        "VALUES (%s, %s, %s::jsonb)",
-                        (kind, course_code, payload_json),
-                    )
-                else:
-                    await conn.execute(
-                        "INSERT INTO events (kind, payload) "
-                        "VALUES (%s, %s::jsonb)",
-                        (kind, payload_json),
-                    )
+        await events_svc.record_event(
+            user_id,
+            EventCreate(kind=kind, course_code=course_code, payload=payload),
+        )
     except Exception:
         pass
 
@@ -122,9 +119,9 @@ def _mtime_iso(p: Path) -> str:
 # in `asyncio.to_thread()` so the event loop stays free for other work.
 
 
-def _list_files_sync(prefix: str, limit: int) -> list[dict[str, Any]]:
+def _list_files_sync(user_id: UUID, prefix: str, limit: int) -> list[dict[str, Any]]:
     try:
-        base = _safe_resolve(prefix)
+        base = _safe_resolve(user_id, prefix)
     except ValueError:
         return []
     if not base.exists() or not base.is_dir():
@@ -161,39 +158,39 @@ def _list_files_sync(prefix: str, limit: int) -> list[dict[str, Any]]:
     return out
 
 
-def _list_recursive_sync(prefix: str) -> list[str]:
+def _list_recursive_sync(user_id: UUID, prefix: str) -> list[str]:
     try:
-        base = _safe_resolve(prefix)
+        base = _safe_resolve(user_id, prefix)
     except ValueError:
         return []
     if not base.exists() or not base.is_dir():
         return []
-    root = _root().resolve()
+    user_root = _user_root(user_id).resolve()
     out: list[str] = []
     for p in base.rglob("*"):
-        if p.is_file() and not any(part.startswith(".") for part in p.relative_to(root).parts):
-            out.append(str(p.relative_to(root)).replace(os.sep, "/"))
+        if p.is_file() and not any(part.startswith(".") for part in p.relative_to(user_root).parts):
+            out.append(str(p.relative_to(user_root)).replace(os.sep, "/"))
     out.sort()
     return out
 
 
-def _download_sync(path: str) -> bytes:
-    target = _safe_resolve(path)
+def _download_sync(user_id: UUID, path: str) -> bytes:
+    target = _safe_resolve(user_id, path)
     if not target.is_file():
         raise FileNotFoundError(f"not found: {path}")
     return target.read_bytes()
 
 
-def _exists_sync(path: str) -> bool:
+def _exists_sync(user_id: UUID, path: str) -> bool:
     try:
-        return _safe_resolve(path).is_file()
+        return _safe_resolve(user_id, path).is_file()
     except ValueError:
         return False
 
 
-def _stat_sync(path: str) -> dict[str, Any] | None:
+def _stat_sync(user_id: UUID, path: str) -> dict[str, Any] | None:
     try:
-        target = _safe_resolve(path)
+        target = _safe_resolve(user_id, path)
     except ValueError:
         return None
     if not target.is_file():
@@ -207,8 +204,8 @@ def _stat_sync(path: str) -> dict[str, Any] | None:
     }
 
 
-def _upload_sync(path: str, data: bytes) -> None:
-    target = _safe_resolve(path)
+def _upload_sync(user_id: UUID, path: str, data: bytes) -> None:
+    target = _safe_resolve(user_id, path)
     target.parent.mkdir(parents=True, exist_ok=True)
     tmp = target.with_suffix(target.suffix + f".tmp-{os.getpid()}")
     try:
@@ -222,11 +219,11 @@ def _upload_sync(path: str, data: bytes) -> None:
                 pass
 
 
-def _delete_sync(paths: list[str]) -> list[str]:
+def _delete_sync(user_id: UUID, paths: list[str]) -> list[str]:
     deleted: list[str] = []
     for p in paths:
         try:
-            target = _safe_resolve(p)
+            target = _safe_resolve(user_id, p)
         except ValueError:
             continue
         if target.is_file():
@@ -246,9 +243,9 @@ def _delete_sync(paths: list[str]) -> list[str]:
     return deleted
 
 
-def _move_sync(source: str, destination: str) -> None:
-    src = _safe_resolve(source)
-    dst = _safe_resolve(destination)
+def _move_sync(user_id: UUID, source: str, destination: str) -> None:
+    src = _safe_resolve(user_id, source)
+    dst = _safe_resolve(user_id, destination)
     if not src.exists():
         raise FileNotFoundError(f"source not found: {source}")
     dst.parent.mkdir(parents=True, exist_ok=True)
@@ -258,7 +255,7 @@ def _move_sync(source: str, destination: str) -> None:
 # ── Read ─────────────────────────────────────────────────────────────────────
 
 
-async def list_files(prefix: str = "", *, limit: int = 200) -> list[dict[str, Any]]:
+async def list_files(user_id: UUID, prefix: str = "", *, limit: int = 200) -> list[dict[str, Any]]:
     """List entries (folders + files) at the given prefix. Non-recursive.
 
     Each entry: `{name, id, updated_at, metadata: {size, mimetype}}`.
@@ -266,51 +263,51 @@ async def list_files(prefix: str = "", *, limit: int = 200) -> list[dict[str, An
     can distinguish them from files without an extra stat call. Dotfiles
     (anything starting with `.`) are filtered out of listings.
     """
-    out = await asyncio.to_thread(_list_files_sync, prefix, limit)
-    await _log("storage:list", {"prefix": prefix, "count": len(out)})
+    out = await asyncio.to_thread(_list_files_sync, user_id, prefix, limit)
+    await _log(user_id, "storage:list", {"prefix": prefix, "count": len(out)})
     return out
 
 
-async def list_recursive(prefix: str) -> list[str]:
-    """Return every file path (relative to STUDY_ROOT) under `prefix`,
+async def list_recursive(user_id: UUID, prefix: str) -> list[str]:
+    """Return every file path (relative to the user's root) under `prefix`,
     descending into subfolders. Skips dotfiles."""
-    return await asyncio.to_thread(_list_recursive_sync, prefix)
+    return await asyncio.to_thread(_list_recursive_sync, user_id, prefix)
 
 
-async def download(path: str) -> bytes:
+async def download(user_id: UUID, path: str) -> bytes:
     """Return raw bytes of a file."""
-    data = await asyncio.to_thread(_download_sync, path)
-    await _log("storage:read", {"path": path, "size": len(data)})
+    data = await asyncio.to_thread(_download_sync, user_id, path)
+    await _log(user_id, "storage:read", {"path": path, "size": len(data)})
     return data
 
 
-async def exists(path: str) -> bool:
-    return await asyncio.to_thread(_exists_sync, path)
+async def exists(user_id: UUID, path: str) -> bool:
+    return await asyncio.to_thread(_exists_sync, user_id, path)
 
 
-async def stat(path: str) -> dict[str, Any] | None:
+async def stat(user_id: UUID, path: str) -> dict[str, Any] | None:
     """Return file metadata or None if the path doesn't exist."""
-    return await asyncio.to_thread(_stat_sync, path)
+    return await asyncio.to_thread(_stat_sync, user_id, path)
 
 
 # ── Write ────────────────────────────────────────────────────────────────────
 
 
-async def upload(path: str, data: bytes, content_type: str = "application/octet-stream") -> dict[str, Any]:
+async def upload(user_id: UUID, path: str, data: bytes, content_type: str = "application/octet-stream") -> dict[str, Any]:
     """Write (or overwrite) a file. Atomic via tmp+rename within the same dir."""
-    await asyncio.to_thread(_upload_sync, path, data)
-    await _log("storage:upload", {"path": path, "size": len(data), "content_type": content_type})
+    await asyncio.to_thread(_upload_sync, user_id, path, data)
+    await _log(user_id, "storage:upload", {"path": path, "size": len(data), "content_type": content_type})
     return {"path": path, "size": len(data), "content_type": content_type}
 
 
-async def delete(paths: list[str]) -> dict[str, Any]:
+async def delete(user_id: UUID, paths: list[str]) -> dict[str, Any]:
     """Delete one or more files. Missing paths are silently OK (idempotent)."""
-    deleted = await asyncio.to_thread(_delete_sync, paths)
-    await _log("storage:delete", {"paths": paths, "count": len(deleted)})
+    deleted = await asyncio.to_thread(_delete_sync, user_id, paths)
+    await _log(user_id, "storage:delete", {"paths": paths, "count": len(deleted)})
     return {"deleted": deleted}
 
 
-async def signed_url(path: str, expires_in: int = 3600) -> str:
+async def signed_url(user_id: UUID, path: str, expires_in: int = 3600) -> str:
     """Return an in-app URL the browser can fetch the file from.
 
     Same-origin path that hits `GET /api/files/raw`, which streams the
@@ -318,13 +315,13 @@ async def signed_url(path: str, expires_in: int = 3600) -> str:
     of the API surface for parity with externally signed URLs but isn't
     enforced here — the session cookie is the auth token.
     """
-    if not await exists(path):
+    if not await exists(user_id, path):
         raise FileNotFoundError(f"not found: {path}")
-    await _log("storage:sign", {"path": path, "expires_in": expires_in})
+    await _log(user_id, "storage:sign", {"path": path, "expires_in": expires_in})
     return f"/api/files/raw?path={quote(path, safe='/')}"
 
 
-async def signed_upload_url(path: str) -> dict[str, Any]:
+async def signed_upload_url(user_id: UUID, path: str) -> dict[str, Any]:
     """Return a URL the browser can PUT the file body to.
 
     Two-step uploads: the JSON endpoint at `POST /api/files/upload-url`
@@ -332,7 +329,7 @@ async def signed_upload_url(path: str) -> dict[str, Any]:
     there, which lands in `/api/files/upload-target` and persists it
     via `upload()`.
     """
-    await _log("storage:sign:upload", {"path": path})
+    await _log(user_id, "storage:sign:upload", {"path": path})
     return {
         "url": f"/api/files/upload-target?path={quote(path, safe='/')}",
         "token": None,
@@ -340,9 +337,9 @@ async def signed_upload_url(path: str) -> dict[str, Any]:
     }
 
 
-async def move(source: str, destination: str) -> dict[str, Any]:
+async def move(user_id: UUID, source: str, destination: str) -> dict[str, Any]:
     """Rename or move a file. Cross-directory moves work as long as both
-    sides are under STUDY_ROOT."""
-    await asyncio.to_thread(_move_sync, source, destination)
-    await _log("storage:move", {"from": source, "to": destination})
+    sides are under the user's root."""
+    await asyncio.to_thread(_move_sync, user_id, source, destination)
+    await _log(user_id, "storage:move", {"from": source, "to": destination})
     return {"from": source, "to": destination}

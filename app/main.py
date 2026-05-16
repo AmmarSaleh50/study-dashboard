@@ -110,9 +110,11 @@ def create_app() -> FastAPI:
         except Exception as exc:
             out["db"] = f"error: {exc!s}"[:200]
             out["ok"] = False
-        # Storage check: STUDY_ROOT must exist and be readable
+        # Storage check: STUDY_ROOT must exist and the operator's user dir
+        # must be readable. Uses the sentinel since /api/health is unauthed.
         try:
-            entries = await storage_svc.list_files("", limit=1)
+            from .auth import SENTINEL_USER_ID
+            entries = await storage_svc.list_files(SENTINEL_USER_ID, "", limit=1)
             out["storage"] = f"ok ({len(entries)} entries seen)"
         except Exception as exc:
             out["storage"] = f"error: {exc!s}"[:200]
