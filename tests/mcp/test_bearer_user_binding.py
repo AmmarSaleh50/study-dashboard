@@ -180,6 +180,57 @@ async def test_verify_token_sets_contextvar(db_conn, monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_verify_token_expires_at_populated(db_conn, monkeypatch):
+    """Bug E: verify_token must populate expires_at from the token row, not None."""
+    monkeypatch.setattr(db_module, "_pool", db_conn)
+
+    await _seed_two_users_with_courses(db_conn)
+    token = "expires-at-test-token"
+    await _issue_token_for(
+        db_conn, client_id="expires-at-client", user_id=_USER_B_ID, token=token
+    )
+
+    from app.mcp_http import OAuthTokenVerifier
+    verifier = OAuthTokenVerifier(resource="https://test/mcp")
+    access = await verifier.verify_token(token)
+
+    assert access is not None
+    # expires_at must be a future Unix timestamp (token was issued for +1 hour).
+    import time
+    assert access.expires_at is not None, "expires_at must not be None (Bug E)"
+    assert isinstance(access.expires_at, int)
+    assert access.expires_at > int(time.time()), "expires_at must be in the future"
+
+
+@pytest.mark.asyncio
+async def test_verify_token_expired_returns_none(db_conn, monkeypatch):
+    """An expired token must not be returned — DB WHERE clause filters it out."""
+    monkeypatch.setattr(db_module, "_pool", db_conn)
+
+    await _seed_two_users_with_courses(db_conn)
+    expired_token = "expired-test-token"
+    # Insert a token that is already expired (expires_at in the past).
+    async with db_conn.connection() as conn, conn.cursor() as cur:
+        await cur.execute(
+            "INSERT INTO oauth_clients (client_id, client_name, redirect_uris) "
+            "VALUES (%s, %s, %s) ON CONFLICT (client_id) DO NOTHING",
+            ("expired-client", "Expired Client", ["https://example.test/cb"]),
+        )
+        await cur.execute(
+            "INSERT INTO oauth_tokens "
+            "(token, client_id, user_id, scope, expires_at) "
+            "VALUES (%s, %s, %s, %s, now() - interval '1 hour')",
+            (expired_token, "expired-client", _USER_B_ID, "mcp"),
+        )
+
+    from app.mcp_http import OAuthTokenVerifier
+    verifier = OAuthTokenVerifier(resource="https://test/mcp")
+    access = await verifier.verify_token(expired_token)
+
+    assert access is None, "Expired token must return None"
+
+
+@pytest.mark.asyncio
 async def test_verify_token_unknown_does_not_clobber_contextvar(
     db_conn, monkeypatch
 ):

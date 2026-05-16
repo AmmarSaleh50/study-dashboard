@@ -56,11 +56,12 @@ class OAuthTokenVerifier(TokenVerifier):
             if not isinstance(user_id, UUID):
                 user_id = UUID(str(user_id))
             set_mcp_user_id(user_id)
+        expires_at_dt = row.get("expires_at")
         return AccessToken(
             token=token,
             client_id=row["client_id"],
             scopes=scope.split(),
-            expires_at=None,
+            expires_at=int(expires_at_dt.timestamp()) if expires_at_dt is not None else None,
             resource=self._resource,
         )
 
