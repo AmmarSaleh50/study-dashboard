@@ -69,8 +69,12 @@ export function useSession() {
 export function useLogin() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (input: { password: string; totp_code?: string }) =>
-      api.post<SessionInfo>("/api/auth/login", input),
+    mutationFn: (input: { email?: string; password: string; totp_code?: string }) => {
+      const body: Record<string, unknown> = { password: input.password };
+      if (input.email) body.email = input.email;
+      if (input.totp_code) body.totp_code = input.totp_code;
+      return api.post<SessionInfo>("/api/auth/login", body);
+    },
     onSuccess: (data) => {
       qc.setQueryData(qk.session, data);
       invalidateAll(qc);

@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { Navigate, useLocation, useNavigate } from "react-router-dom";
-import { KeyRound, Loader2, ShieldCheck } from "lucide-react";
+import { KeyRound, Loader2, Mail, ShieldCheck } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useLogin, useSession } from "@/lib/queries";
 import { ApiError } from "@/lib/api";
@@ -16,6 +16,7 @@ export default function Login() {
 
   useDocumentTitle();
   useHtmlLang();
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [totpCode, setTotpCode] = useState("");
   const [needsTotp, setNeedsTotp] = useState(false);
@@ -31,7 +32,7 @@ export default function Login() {
     e.preventDefault();
     setErr(null);
     try {
-      await login.mutateAsync({ password, totp_code: needsTotp ? totpCode : undefined });
+      await login.mutateAsync({ email: email || undefined, password, totp_code: needsTotp ? totpCode : undefined });
       if (next.startsWith("/oauth") || next.startsWith("/mcp") || next.startsWith("/.well-known")) {
         window.location.href = next;
       } else {
@@ -76,10 +77,29 @@ export default function Login() {
           <div>
             <h2 className="text-base font-semibold">{t("login.title")}</h2>
             <p className="text-xs text-muted mt-1">
-              {t("login.intro", "Enter your password to continue.")}
+              {t("login.intro", "Enter your email and password to continue.")}
             </p>
           </div>
           <form onSubmit={onSubmit} className="flex flex-col gap-4">
+            <label className="flex flex-col gap-1.5">
+              <span className="text-xs font-medium text-muted">{t("login.email", "Email")}</span>
+              <div className="relative">
+                <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted" />
+                <input
+                  type="email"
+                  name="email"
+                  autoComplete="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  required
+                  autoFocus={!needsTotp}
+                  disabled={needsTotp}
+                  className="w-full bg-surface-2 border border-border/60 rounded-md pl-10 pr-3 py-2.5 text-sm text-fg placeholder:text-subtle focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg disabled:opacity-60"
+                  placeholder="you@example.com"
+                />
+              </div>
+            </label>
+
             <label className="flex flex-col gap-1.5">
               <span className="text-xs font-medium text-muted">{t("login.password")}</span>
               <div className="relative">
@@ -91,7 +111,6 @@ export default function Login() {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   required
-                  autoFocus={!needsTotp}
                   disabled={needsTotp}
                   className="w-full bg-surface-2 border border-border/60 rounded-md pl-10 pr-3 py-2.5 text-sm text-fg placeholder:text-subtle focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg disabled:opacity-60"
                   placeholder="••••••••••••"
@@ -129,7 +148,7 @@ export default function Login() {
 
             <button
               type="submit"
-              disabled={login.isPending || !password}
+              disabled={login.isPending || !email || !password}
               className="touch-target inline-flex items-center justify-center gap-2 rounded-md bg-primary text-primary-fg text-sm font-medium px-4 py-2.5 disabled:opacity-60 disabled:cursor-not-allowed hover:bg-primary/90 transition-colors"
             >
               {login.isPending ? (
