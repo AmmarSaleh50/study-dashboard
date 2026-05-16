@@ -1,9 +1,15 @@
-name: Deploy on tag
+name: Deploy
 
 on:
   push:
     tags:
       - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Git ref to deploy (tag, branch, or SHA). Defaults to origin/main.'
+        required: false
+        default: 'origin/main'
 
 concurrency:
   group: deploy-prod
@@ -25,4 +31,5 @@ jobs:
           script: |
             set -euo pipefail
             cd /opt/openstudy
-            OPENSTUDY_DEPLOY_REF="${{ github.ref_name }}" ./deploy.sh --pull
+            REF="${{ github.event.inputs.ref || github.ref_name }}"
+            OPENSTUDY_DEPLOY_REF="$REF" ./deploy.sh --pull
