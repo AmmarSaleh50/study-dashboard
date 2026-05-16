@@ -26,7 +26,10 @@ dependencies = [
 
 [tool.uv]
 package = false
-exclude-newer = "7 days"
+# Supply-chain cooldown: pinned date instead of rolling "N days" so security
+# pins set today don't conflict with the cooldown window. Bump this when
+# adopting new packages.
+exclude-newer = "2026-05-16T12:00:00Z"
 
 [dependency-groups]
 dev = [
