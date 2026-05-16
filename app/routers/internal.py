@@ -11,11 +11,12 @@ The `/telegram` endpoint is special: it's authenticated by Telegram's own
 import logging
 import os
 
-import httpx
 from fastapi import APIRouter, BackgroundTasks, Header, HTTPException, Request, status
 
+from ..auth import SENTINEL_USER_ID, set_current_user_id
 from ..services import file_index as file_index_svc
 from ..services import telegram as telegram_svc
+from ..services import user_secrets as user_secrets_svc
 
 router = APIRouter(prefix="/internal", tags=["internal"])
 log = logging.getLogger(__name__)
@@ -82,6 +83,10 @@ async def telegram_webhook(
 
     Authenticated by Telegram's own `X-Telegram-Bot-Api-Secret-Token` header,
     which Telegram includes on every webhook delivery if we set it via setWebhook.
+
+    Phase 6: routes to the correct user by looking up `chat_id` in
+    `user_secrets.telegram_chat_id`.  Falls back to the operator sentinel when
+    the chat_id matches `TELEGRAM_CHAT_ID` env but has no user_secrets row.
     """
     expected = os.environ.get("TELEGRAM_WEBHOOK_SECRET", "").strip()
     if not expected or x_telegram_bot_api_secret_token != expected:
@@ -95,22 +100,29 @@ async def telegram_webhook(
     if not chat_id or not text:
         return {"ok": True}
 
-    # Allowlist: only respond to the operator's own chat (TELEGRAM_CHAT_ID)
-    allowed = int(os.environ.get("TELEGRAM_CHAT_ID", "0") or "0")
-    if chat_id != allowed:
-        log.warning("telegram webhook from unauthorised chat_id=%s", chat_id)
-        return {"ok": True}  # silent ignore
+    # --- Phase 6: resolve user_id from chat_id ---------------------------
+    user_id = await user_secrets_svc.get_user_id_by_chat_id(str(chat_id))
 
-    token = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
-    if not token:
-        return {"ok": False, "reason": "no bot token configured"}
+    if user_id is None:
+        # Operator-legacy fallback: check TELEGRAM_CHAT_ID env.
+        operator_chat_id = int(os.environ.get("TELEGRAM_CHAT_ID", "0") or "0")
+        if chat_id == operator_chat_id:
+            user_id = SENTINEL_USER_ID
+        else:
+            log.warning("telegram webhook from unrecognised chat_id=%s", chat_id)
+            raise HTTPException(status.HTTP_403_FORBIDDEN, detail="chat_id not registered")
 
-    reply = await telegram_svc.handle_command(text, chat_id=chat_id)
+    # Stamp the resolved user onto the per-request contextvar so GUC / RLS
+    # applies to any DB calls inside handle_command.
+    set_current_user_id(user_id)
+
+    reply = await telegram_svc.handle_command(text, chat_id=chat_id, user_id=user_id)
+
+    # Send the reply using the user's own bot token (or env fallback).
     if reply:
-        async with httpx.AsyncClient(timeout=10) as client:
-            await client.post(
-                f"https://api.telegram.org/bot{token}/sendMessage",
-                json={"chat_id": chat_id, "text": reply, "disable_web_page_preview": True},
-            )
+        secrets = await user_secrets_svc.get_secrets(user_id)
+        token = secrets.telegram_bot_token or os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
+        if token:
+            await telegram_svc.send_message(token, chat_id, reply)
 
     return {"ok": True}
