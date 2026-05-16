@@ -1,21 +1,19 @@
 from .. import db
+from ..auth import SENTINEL_USER_ID
 from ..schemas import AppSettings, AppSettingsPatch
 from ._helpers import validated_cols
-
-
-SETTINGS_PK = 1
 
 
 async def get_settings() -> AppSettings:
     """Return the singleton app_settings row. Inserts if missing."""
     row = await db.fetchrow(
-        "SELECT * FROM app_settings WHERE id = %s LIMIT 1",
-        SETTINGS_PK,
+        "SELECT * FROM app_settings WHERE user_id = %s LIMIT 1",
+        SENTINEL_USER_ID,
     )
     if row is None:
         await db.execute(
-            "INSERT INTO app_settings (id) VALUES (%s) ON CONFLICT DO NOTHING",
-            SETTINGS_PK,
+            "INSERT INTO app_settings (user_id) VALUES (%s) ON CONFLICT DO NOTHING",
+            SENTINEL_USER_ID,
         )
         return AppSettings()
     return AppSettings.model_validate(row)
@@ -42,20 +40,20 @@ async def update_settings(patch: AppSettingsPatch) -> AppSettings:
     values = [data[c] for c in cols]
 
     row = await db.fetchrow(
-        f"UPDATE app_settings SET {set_clause} WHERE id = %s RETURNING *",
-        *values, SETTINGS_PK,
+        f"UPDATE app_settings SET {set_clause} WHERE user_id = %s RETURNING *",
+        *values, SENTINEL_USER_ID,
     )
     if row is None:
         # Row missing — upsert (ON CONFLICT) rather than bare INSERT, so two
         # concurrent first-callers don't race the PK constraint into a 500.
-        insert_cols = ["id", *cols]
+        insert_cols = ["user_id", *cols]
         placeholders = ", ".join(["%s"] * len(insert_cols))
         update_set = ", ".join(f"{c} = EXCLUDED.{c}" for c in cols)
         row = await db.fetchrow(
             f"INSERT INTO app_settings ({', '.join(insert_cols)}) "
             f"VALUES ({placeholders}) "
-            f"ON CONFLICT (id) DO UPDATE SET {update_set} "
+            f"ON CONFLICT (user_id) DO UPDATE SET {update_set} "
             f"RETURNING *",
-            SETTINGS_PK, *values,
+            SENTINEL_USER_ID, *values,
         )
     return AppSettings.model_validate(row)

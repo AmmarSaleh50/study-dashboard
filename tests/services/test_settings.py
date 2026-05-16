@@ -11,8 +11,12 @@ async def test_get_settings_creates_singleton_if_missing(client, db_conn):
     assert result.timezone == "UTC"
     assert result.locale == "en-US"
     # Confirm the row was actually persisted (not just defaults from schema).
+    from app.auth import SENTINEL_USER_ID
     async with db_conn.connection() as conn, conn.cursor() as cur:
-        await cur.execute("SELECT count(*) AS n FROM app_settings WHERE id = 1")
+        await cur.execute(
+            "SELECT count(*) AS n FROM app_settings WHERE user_id = %s",
+            (SENTINEL_USER_ID,),
+        )
         row = await cur.fetchone()
         assert row["n"] == 1
 
