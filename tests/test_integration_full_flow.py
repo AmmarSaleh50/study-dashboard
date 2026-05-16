@@ -71,9 +71,26 @@ async def test_oauth_full_lifecycle(https_client, db_conn):
     assert login.status_code == 200, login.text
     assert https_client.cookies.get("study_session")
 
-    # 3. Consent → 302 to redirect_uri with ?code=…
+    # 3. GET /oauth/authorize — renders consent form and sets oauth_consent_state cookie.
     verifier, challenge = _pkce_pair()
     state = "state-xyz"
+    authorize = await https_client.get(
+        "/oauth/authorize",
+        params={
+            "response_type": "code",
+            "client_id": client_id,
+            "redirect_uri": redirect_uri,
+            "code_challenge": challenge,
+            "code_challenge_method": "S256",
+            "scope": "mcp",
+            "state": state,
+        },
+    )
+    assert authorize.status_code == 200, authorize.text
+    assert https_client.cookies.get("oauth_consent_state"), "consent cookie not set"
+
+    # 4. Consent → 302 to redirect_uri with ?code=…
+    # The httpx client jar carries the oauth_consent_state cookie automatically.
     consent = await https_client.post(
         "/oauth/consent",
         data={
@@ -94,7 +111,7 @@ async def test_oauth_full_lifecycle(https_client, db_conn):
     assert qs.get("state") == [state]
     code = qs["code"][0]
 
-    # 4. Exchange code for an access token.
+    # 5. Exchange code for an access token.
     tok = await https_client.post(
         "/oauth/token",
         data={
@@ -108,7 +125,7 @@ async def test_oauth_full_lifecycle(https_client, db_conn):
     assert tok.status_code == 200, tok.text
     access_token = tok.json()["access_token"]
 
-    # 5. POST /mcp/ tools/list with Bearer auth → must succeed.
+    # 6. POST /mcp/ tools/list with Bearer auth → must succeed.
     mcp_resp = await https_client.post(
         "/mcp/",
         headers={
@@ -125,13 +142,13 @@ async def test_oauth_full_lifecycle(https_client, db_conn):
     # show up — `list_courses` is registered unconditionally.
     assert "list_courses" in body, body[:500]
 
-    # 6. Revoke via the RFC 7009 endpoint.
+    # 7. Revoke via the RFC 7009 endpoint.
     revoke = await https_client.post(
         "/oauth/revoke", data={"token": access_token, "client_id": client_id}
     )
     assert revoke.status_code == 200, revoke.text
 
-    # 7. Repeat /mcp/ — Bearer token now invalid → 401.
+    # 8. Repeat /mcp/ — Bearer token now invalid → 401.
     mcp_resp_2 = await https_client.post(
         "/mcp/",
         headers={
