@@ -54,6 +54,13 @@ class Settings(BaseSettings):
 
     secrets_encryption_key: str = Field(default="", description="Fernet master key (mint with cryptography.fernet.Fernet.generate_key())")
 
+    # Email — Phase 3+
+    email_backend: str = Field(default="console", description="Email backend: console|gmail_smtp")
+    gmail_smtp_user: str = Field(default="", description="Gmail SMTP username (your gmail address)")
+    gmail_smtp_app_password: str = Field(default="", description="Gmail app-password (16 chars, no spaces in storage)")
+    email_from: str = Field(default="hello@openstudy.dev", description="From: address for outbound emails")
+    email_from_name: str = Field(default="OpenStudy", description="From: name")
+
     @property
     def cors_origins_list(self) -> List[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
