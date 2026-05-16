@@ -381,6 +381,20 @@ class TotpVerifyRequest(BaseModel):
     code: str
 
 
+class SignupRequest(BaseModel):
+    email: str
+    password: str = Field(min_length=8, max_length=128)
+
+
+class ForgotRequest(BaseModel):
+    email: str
+
+
+class ResetRequest(BaseModel):
+    token: str
+    new_password: str = Field(min_length=8, max_length=128)
+
+
 # ---------- Bulk lecture helper ----------
 class LectureTopicsAdd(BaseModel):
     course_code: CourseCode

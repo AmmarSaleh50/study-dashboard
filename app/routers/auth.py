@@ -2,6 +2,7 @@ import pyotp
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 
 from ..services import totp as totp_svc
+from ..services import auth_signup as signup_svc
 from ..auth import (
     SENTINEL_USER_ID,
     clear_session,
@@ -12,8 +13,8 @@ from ..auth import (
     verify_password,
     verify_totp,
 )
-from ..ratelimit import check_login_rate, record_login_attempt
-from ..schemas import LoginRequest, SessionInfo, TotpSetupResponse, TotpVerifyRequest
+from ..ratelimit import check_login_rate, record_login_attempt, check_auth_rate
+from ..schemas import LoginRequest, SessionInfo, TotpSetupResponse, TotpVerifyRequest, SignupRequest, ForgotRequest, ResetRequest
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -88,3 +89,43 @@ async def totp_disable(body: TotpVerifyRequest, _: bool = Depends(require_auth))
         raise HTTPException(401, "invalid code")
     await totp_svc.disable(SENTINEL_USER_ID)
     return SessionInfo(authed=True, totp_enabled=False)
+
+
+# ── Signup / email-verification / password-reset ────────────────────────────
+
+@router.post("/signup")
+async def signup(body: SignupRequest, request: Request) -> dict:
+    await check_auth_rate(request, kind="signup")
+    try:
+        await signup_svc.signup(body.email, body.password)
+    except ValueError as e:
+        msg = str(e)
+        if "disabled" in msg:
+            raise HTTPException(status.HTTP_403_FORBIDDEN, "signups disabled")
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, msg)
+    # Always return neutral 200 (no enumeration about whether email was already taken)
+    return {"ok": True, "message": "check your email to verify"}
+
+
+@router.get("/verify-email")
+async def verify_email(token: str) -> dict:
+    ok = await signup_svc.verify_email(token)
+    if not ok:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "invalid or expired token")
+    return {"ok": True}
+
+
+@router.post("/forgot-password")
+async def forgot_password(body: ForgotRequest, request: Request) -> dict:
+    await check_auth_rate(request, kind="reset")
+    await signup_svc.request_password_reset(body.email)
+    # Always return 200 (no enumeration)
+    return {"ok": True, "message": "if the email exists, a reset link has been sent"}
+
+
+@router.post("/reset-password")
+async def reset_password(body: ResetRequest) -> dict:
+    ok = await signup_svc.complete_password_reset(body.token, body.new_password)
+    if not ok:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "invalid or expired token")
+    return {"ok": True}
