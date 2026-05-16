@@ -33,10 +33,8 @@ async def test_operator_user_seed_row_exists(client, db_conn):
 async def test_delete_user_cascades_to_owned_data(client, db_conn):
     """Inserting a second user + course, then deleting the user, removes the course.
 
-    The audit trigger (trg_log_change_courses) fires when courses cascade-delete
-    and tries to INSERT into events — but by then the user row is already gone,
-    causing an FK violation. Disable the trigger for the duration of this test
-    so we can prove the CASCADE FK itself works.
+    events.user_id has no FK (dropped in migration 20260516020008) so the audit
+    trigger can insert freely during the cascade without a constraint violation.
     """
     new_user = str(uuid4())
     async with db_conn.connection() as conn, conn.cursor() as cur:
@@ -54,15 +52,8 @@ async def test_delete_user_cascades_to_owned_data(client, db_conn):
         )
         assert (await cur.fetchone())["c"] == 1
 
-        # The audit trigger fires during cascaded course-delete and tries to
-        # INSERT into events with the user_id that's mid-deletion.  Suppress
-        # it so the CASCADE FK itself is what we're testing, not trigger ordering.
-        await cur.execute("ALTER TABLE courses DISABLE TRIGGER trg_log_change_courses")
-
         # Delete the user — should cascade to courses.
         await cur.execute("DELETE FROM users WHERE id = %s", (new_user,))
-
-        await cur.execute("ALTER TABLE courses ENABLE TRIGGER trg_log_change_courses")
 
         # The user's courses must be gone (CASCADE on users(id)).
         await cur.execute(
