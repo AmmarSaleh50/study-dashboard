@@ -48,7 +48,7 @@ async def update_exam(course_code: str, patch: ExamPatch) -> Exam:
     sql = (
         f"INSERT INTO exams ({', '.join(insert_cols)}) "
         f"VALUES ({insert_placeholders}) "
-        f"ON CONFLICT (course_code) DO UPDATE SET {update_set} "
+        f"ON CONFLICT (user_id, course_code) DO UPDATE SET {update_set} "
         f"RETURNING *"
     )
     row = await db.fetchrow(sql, course_code, *[data[c] for c in cols])

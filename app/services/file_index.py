@@ -124,7 +124,7 @@ async def index_all() -> dict[str, Any]:
                 """
                 INSERT INTO file_index (path, course_code, size, sha256, text_content, indexed_at)
                 VALUES (%s, %s, %s, %s, %s, %s)
-                ON CONFLICT (path) DO UPDATE
+                ON CONFLICT (user_id, path) DO UPDATE
                    SET course_code = EXCLUDED.course_code,
                        size = EXCLUDED.size,
                        sha256 = EXCLUDED.sha256,
