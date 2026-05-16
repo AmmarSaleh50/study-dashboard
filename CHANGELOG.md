@@ -4,6 +4,24 @@ All notable changes to OpenStudy will be documented here.
 Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 versions follow [SemVer](https://semver.org/spec/v2.0.0.html).
 
+## v0.7.0-pre.6 (unreleased) — Multi-tenant Phase 5
+
+### MCP user binding
+- `app/mcp_http.OAuthTokenVerifier.verify_token` now stamps the bearer's user_id into a contextvar, and populates `AccessToken.expires_at` from the token row (Bug E).
+- `app/mcp_tools.py` (~46 tool call sites) now reads the per-request user via `_get_mcp_user_id()` instead of the global SENTINEL_USER_ID. Each MCP request now operates on its bearer's user data, not the operator's.
+
+### OAuth hardening
+- Consent flow now binds `state` + `client_id` + `code_challenge` to a signed `oauth_consent_state` cookie (HttpOnly, Secure, SameSite=Strict, 10-min TTL) issued at `/oauth/authorize` and verified at `/oauth/consent` (Bug F). Prevents same-site CSRF on the consent step.
+
+### Schema
+- Bulk-revoked all pre-Phase-5 oauth_tokens (force fresh consent so every active token has a real user_id).
+
+### Tests
+- New `tests/mcp/test_bearer_user_binding.py` proves cross-user MCP isolation + expires_at population.
+- New `tests/test_oauth_consent_csrf.py` proves consent POSTs without/with-mismatch cookie are rejected.
+- New regression in `tests/services/test_oauth.py::test_bulk_revoke_invalidates_all_tokens`.
+- Suite total: 300 (was 289 at Phase 4).
+
 ## v0.7.0-pre.5 (unreleased) — Multi-tenant Phase 4
 
 ### Schema
