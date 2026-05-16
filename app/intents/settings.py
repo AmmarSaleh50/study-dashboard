@@ -10,8 +10,8 @@ from ..services import settings as svc
 
 
 async def get_settings(user_id: UUID) -> AppSettings:
-    return await svc.get_settings()
+    return await svc.get_settings(user_id)
 
 
 async def update_settings(user_id: UUID, patch: AppSettingsPatch) -> AppSettings:
-    return await svc.update_settings(patch)
+    return await svc.update_settings(user_id, patch)

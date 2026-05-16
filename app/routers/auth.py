@@ -3,6 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 
 from ..services import totp as totp_svc
 from ..auth import (
+    SENTINEL_USER_ID,
     clear_session,
     is_totp_required,
     issue_session,
@@ -62,7 +63,7 @@ async def totp_setup(_: bool = Depends(require_auth)) -> TotpSetupResponse:
     # Upsert: on a fresh DB the singleton row may not exist yet, in which case
     # a bare UPDATE silently matches zero rows and the secret is lost — the
     # caller then sees 200 here but a 400 on /enable. Fixed via ON CONFLICT.
-    await totp_svc.set_pending(secret)
+    await totp_svc.set_pending(SENTINEL_USER_ID, secret)
     uri = pyotp.TOTP(secret).provisioning_uri(name="admin", issuer_name="OpenStudy")
     return TotpSetupResponse(secret=secret, provisioning_uri=uri)
 
@@ -70,13 +71,13 @@ async def totp_setup(_: bool = Depends(require_auth)) -> TotpSetupResponse:
 @router.post("/totp/enable", response_model=SessionInfo)
 async def totp_enable(body: TotpVerifyRequest, _: bool = Depends(require_auth)) -> SessionInfo:
     """Confirm setup by submitting a 6-digit code from the authenticator."""
-    enabled, secret = await totp_svc.get_state()
+    enabled, secret = await totp_svc.get_state(SENTINEL_USER_ID)
     if not secret:
         raise HTTPException(400, "no pending TOTP secret — call /setup first")
     code = body.code.strip().replace(" ", "")
     if not pyotp.TOTP(secret).verify(code, valid_window=1):
         raise HTTPException(401, "invalid code")
-    await totp_svc.enable()
+    await totp_svc.enable(SENTINEL_USER_ID)
     return SessionInfo(authed=True, totp_enabled=True)
 
 
@@ -85,5 +86,5 @@ async def totp_disable(body: TotpVerifyRequest, _: bool = Depends(require_auth))
     """Disable TOTP. Must verify a current code so a stolen session can't disable."""
     if not await verify_totp(body.code):
         raise HTTPException(401, "invalid code")
-    await totp_svc.disable()
+    await totp_svc.disable(SENTINEL_USER_ID)
     return SessionInfo(authed=True, totp_enabled=False)

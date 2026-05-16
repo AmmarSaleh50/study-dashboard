@@ -1,17 +1,18 @@
 """Tests for app/services/settings.py."""
 import pytest
 
+from app.auth import SENTINEL_USER_ID
+
 
 @pytest.mark.asyncio
 async def test_get_settings_creates_singleton_if_missing(client, db_conn):
     from app.services import settings as svc
-    result = await svc.get_settings()
+    result = await svc.get_settings(SENTINEL_USER_ID)
     # AppSettings schema has no `id` field (extra="ignore"). Assert on
     # observable defaults of the singleton row instead.
     assert result.timezone == "UTC"
     assert result.locale == "en-US"
     # Confirm the row was actually persisted (not just defaults from schema).
-    from app.auth import SENTINEL_USER_ID
     async with db_conn.connection() as conn, conn.cursor() as cur:
         await cur.execute(
             "SELECT count(*) AS n FROM app_settings WHERE user_id = %s",
@@ -25,11 +26,11 @@ async def test_get_settings_creates_singleton_if_missing(client, db_conn):
 async def test_update_settings_persists(client, db_conn):
     from app.schemas import AppSettingsPatch
     from app.services import settings as svc
-    await svc.get_settings()  # ensure singleton exists
-    updated = await svc.update_settings(AppSettingsPatch(display_name="Ammar"))
+    await svc.get_settings(SENTINEL_USER_ID)  # ensure singleton exists
+    updated = await svc.update_settings(SENTINEL_USER_ID, AppSettingsPatch(display_name="Ammar"))
     assert updated.display_name == "Ammar"
     # Re-fetch to confirm persistence
-    again = await svc.get_settings()
+    again = await svc.get_settings(SENTINEL_USER_ID)
     assert again.display_name == "Ammar"
 
 
@@ -37,7 +38,7 @@ async def test_update_settings_persists(client, db_conn):
 async def test_update_settings_empty_patch_is_noop(client, db_conn):
     from app.schemas import AppSettingsPatch
     from app.services import settings as svc
-    await svc.get_settings()
-    original = (await svc.get_settings()).display_name
-    result = await svc.update_settings(AppSettingsPatch())
+    await svc.get_settings(SENTINEL_USER_ID)
+    original = (await svc.get_settings(SENTINEL_USER_ID)).display_name
+    result = await svc.update_settings(SENTINEL_USER_ID, AppSettingsPatch())
     assert result.display_name == original

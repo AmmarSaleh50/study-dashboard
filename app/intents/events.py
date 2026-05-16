@@ -18,8 +18,8 @@ async def list_events(
     course_code: Optional[str] = None,
     limit: int = 100,
 ) -> List[Event]:
-    return await svc.list_events(since, kind, course_code, limit)
+    return await svc.list_events(user_id, since, kind, course_code, limit)
 
 
 async def record_event(user_id: UUID, payload: EventCreate) -> Event:
-    return await svc.record_event(payload)
+    return await svc.record_event(user_id, payload)

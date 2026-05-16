@@ -1,19 +1,21 @@
 import json
 from datetime import datetime
 from typing import List, Optional
+from uuid import UUID
 
 from .. import db
 from ..schemas import Event, EventCreate
 
 
 async def list_events(
+    user_id: UUID,
     since: Optional[datetime] = None,
     kind: Optional[str] = None,
     course_code: Optional[str] = None,
     limit: int = 100,
 ) -> List[Event]:
-    where: list[str] = []
-    args: list = []
+    where: list[str] = ["user_id = %s"]
+    args: list = [user_id]
     if since:
         where.append("created_at >= %s")
         args.append(since)
@@ -35,7 +37,7 @@ async def list_events(
     return [Event.model_validate(r) for r in rows]
 
 
-async def record_event(payload: EventCreate) -> Event:
+async def record_event(user_id: UUID, payload: EventCreate) -> Event:
     """Insert a row into `events`. JSONB payload is serialised via json.dumps
     + an explicit `::jsonb` cast so psycopg sends it as a single text param.
 
@@ -48,9 +50,9 @@ async def record_event(payload: EventCreate) -> Event:
     """
     payload_json = json.dumps(payload.payload) if payload.payload is not None else None
     row = await db.fetchrow(
-        "INSERT INTO events (kind, course_code, payload, created_at) "
-        "VALUES (%s, %s, %s::jsonb, clock_timestamp()) RETURNING *",
-        payload.kind, payload.course_code, payload_json,
+        "INSERT INTO events (user_id, kind, course_code, payload, created_at) "
+        "VALUES (%s, %s, %s, %s::jsonb, clock_timestamp()) RETURNING *",
+        user_id, payload.kind, payload.course_code, payload_json,
     )
     if row is None:
         raise ValueError(f"failed to record event '{payload.kind}'")

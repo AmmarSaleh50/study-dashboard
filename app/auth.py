@@ -151,9 +151,12 @@ def in_window(dt: datetime, minutes: int) -> bool:
 # ── TOTP (RFC 6238) ─────────────────────────────────────────────────────────
 
 async def get_totp_state() -> tuple[bool, Optional[str]]:
-    """Compatibility shim — delegates to app.services.totp."""
+    """Compatibility shim — delegates to app.services.totp.
+
+    Passes SENTINEL_USER_ID; Phase 3 will wire real user identity here.
+    """
     from .services import totp as totp_svc
-    return await totp_svc.get_state()
+    return await totp_svc.get_state(SENTINEL_USER_ID)
 
 
 async def is_totp_required() -> bool:
