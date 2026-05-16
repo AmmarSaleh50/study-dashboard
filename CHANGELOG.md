@@ -4,6 +4,35 @@ All notable changes to OpenStudy will be documented here.
 Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 versions follow [SemVer](https://semver.org/spec/v2.0.0.html).
 
+## v0.7.0-pre.4 (unreleased) — Multi-tenant Phase 3
+
+### Backend
+- New `app/services/email.py` with pluggable backends: `console` (test default) and `gmail_smtp` (Gmail app-password SMTP via stdlib smtplib).
+- Email templates in `app/templates/email/` (Jinja2): verify_email + password_reset.
+- New `app/services/auth_signup.py` with signup, verify_email, request_password_reset, complete_password_reset.
+- New tables: `email_verifications` + `password_resets` (one-shot tokens with expires_at + used_at).
+- New endpoints: `POST /auth/signup` (gated by `SIGNUPS_ENABLED`), `GET /auth/verify-email`, `POST /auth/forgot-password`, `POST /auth/reset-password`.
+- `/auth/login` now accepts `email` + `password`. Operator-legacy (no email, password against `APP_PASSWORD_HASH`) retained for upgrade safety.
+- Session cookie payload upgraded to JSON `{u: user_id, iat: timestamp}`. `optional_user`/`require_user` look up `users` row by id. Legacy `b"authed"` cookies fall back to the sentinel during rollout.
+
+### Frontend
+- Login form gains an email field.
+- New routes: `/signup`, `/forgot-password`, `/reset-password`, `/verify-email`.
+- 4 new mutations/queries in `web/src/lib/queries.ts`.
+
+### Ops
+- New `scripts/seed_operator_password.py` — reads `APP_PASSWORD_HASH` env, sets `users.password_hash` for the operator if NULL. Idempotent. Invoked by `deploy.sh` after `db push`.
+- New env vars: `EMAIL_BACKEND`, `GMAIL_SMTP_USER`, `GMAIL_SMTP_APP_PASSWORD`, `EMAIL_FROM`, `EMAIL_FROM_NAME`, `SIGNUPS_ENABLED`, `PUBLIC_URL`. All have safe defaults; `EMAIL_BACKEND=console` keeps tests silent.
+
+### Tests
+- New `tests/test_integration_signup.py` (4 tests): full signup → verify → login → forgot → reset flow + signup-disabled + bad-token + no-enumeration.
+- New `tests/services/test_email.py` (3 tests) + `tests/services/test_auth_signup.py` (7 tests) + `tests/routers/test_auth_signup.py` (6 tests).
+- Suite total: 285 (was 262 at Phase 2).
+
+### Migration notes
+- After upgrade: existing operators continue to log in with their old password via the legacy fallback. Once `users.password_hash` is set (via `seed_operator_password.py` or `forgot-password` flow), the email-based login is the canonical path.
+- Operator email defaults to `operator@local` (env-configurable via `OPERATOR_EMAIL`). To change, either UPDATE `users` directly or use the forgot-password flow.
+
 ## v0.7.0-pre.3 (unreleased) — Multi-tenant Phase 2
 
 ### Services

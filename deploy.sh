@@ -166,6 +166,17 @@ if [[ -x ./scripts/migrate_study_root.sh ]]; then
     }
 fi
 
+# Phase 3: seed operator password if APP_PASSWORD_HASH is set + users.password_hash is NULL.
+if [[ -x ./scripts/seed_operator_password.py ]] && [[ -n "${APP_PASSWORD_HASH:-}" ]]; then
+    log "seeding operator password (idempotent)..."
+    APP_PASSWORD_HASH="${APP_PASSWORD_HASH}" \
+    OPERATOR_USER_ID="${OPERATOR_USER_ID:-00000000-0000-0000-0000-000000000001}" \
+        ./scripts/seed_operator_password.py || {
+        err "operator password seed failed — investigate"
+        exit 1
+    }
+fi
+
 # ── roll forward ─────────────────────────────────────────────────────────────
 
 log "starting new openstudy + recreating frontend..."
