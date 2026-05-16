@@ -235,6 +235,7 @@
       "activity": "Aktivität",
       "theme": "Theme",
       "security": "Sicherheit",
+      "telegram": "Telegram",
       "session": "Sitzung"
     },
     "totp": {
@@ -291,6 +292,23 @@
       "title": "Sprache",
       "english": "English",
       "german": "Deutsch"
+    },
+    "telegram": {
+      "intro": "Verbinde deinen eigenen Telegram-Bot, um Erinnerungen zu erhalten und /sync aus dem Chat zu starten. Zugangsdaten werden verschlüsselt gespeichert.",
+      "botToken": "Bot-Token",
+      "botTokenHint": "Von @BotFather beziehen.",
+      "chatId": "Chat-ID",
+      "chatIdHint": "Sende /start an @userinfobot, um deine numerische Chat-ID zu erhalten.",
+      "webhookSecret": "Webhook-Secret",
+      "webhookSecretHint": "Verifiziert Telegram → deinen Server. Beliebiger Zufallsstring.",
+      "set": "Gesetzt",
+      "notSet": "Nicht gesetzt",
+      "save": "Speichern",
+      "saved": "Telegram-Zugangsdaten gespeichert.",
+      "sendTest": "Testnachricht senden",
+      "testSent": "Testnachricht gesendet.",
+      "testFailed": "Test fehlgeschlagen: {{error}}",
+      "placeholderUnchanged": "•••• (gespeichert — tippen, um zu ändern)"
     }
   },
   "forms": {

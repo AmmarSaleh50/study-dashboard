@@ -10,6 +10,7 @@ import {
   LogOut,
   Palette,
   RefreshCw,
+  Send,
   ShieldCheck,
   User,
 } from "lucide-react";
@@ -40,7 +41,10 @@ import {
   useAppSettings,
   useDashboard,
   useLogout,
+  useSecretsStatus,
+  useTelegramTest,
   useUpdateAppSettings,
+  useUpdateSecrets,
 } from "@/lib/queries";
 import { fmtBerlin } from "@/lib/time";
 
@@ -100,6 +104,10 @@ export default function Settings() {
 
         <Section icon={<ShieldCheck className="h-4 w-4" />} title={t("settings.sections.security", "Security")}>
           <TotpCard />
+        </Section>
+
+        <Section icon={<Send className="h-4 w-4" />} title={t("settings.sections.telegram", "Telegram")}>
+          <TelegramCard />
         </Section>
 
         <Section icon={<LogOut className="h-4 w-4" />} title={t("settings.sections.session")}>
@@ -424,6 +432,146 @@ function ThemePicker() {
         );
       })}
     </div>
+  );
+}
+
+function TelegramCard() {
+  const { t } = useTranslation();
+  const status = useSecretsStatus();
+  const update = useUpdateSecrets();
+  const test = useTelegramTest();
+
+  // Inputs start empty; the saved-state lives server-side (we only know
+  // booleans via /api/settings/secrets). The user re-types only to change.
+  // For chat_id we DO hydrate from the GET (it isn't secret).
+  const [botToken, setBotToken] = useState("");
+  const [chatId, setChatId] = useState("");
+  const [webhookSecret, setWebhookSecret] = useState("");
+
+  useEffect(() => {
+    if (status.data) {
+      setChatId(status.data.telegram_chat_id ?? "");
+    }
+  }, [status.data]);
+
+  if (status.isPending) {
+    return <Loader2 className="h-4 w-4 animate-spin text-muted" />;
+  }
+
+  const tokenSet = Boolean(status.data?.telegram_bot_token_set);
+  const webhookSet = Boolean(status.data?.telegram_webhook_secret_set);
+  const savedChatId = status.data?.telegram_chat_id ?? "";
+
+  // Dirty detection: only send fields the user actually edited.
+  // - For password fields (token, webhook): non-empty input → set; user cannot "clear" via this UI
+  //   without a separate affordance, so empty input means "leave alone".
+  // - For chat_id: differs from saved value → set/clear.
+  const tokenDirty = botToken !== "";
+  const webhookDirty = webhookSecret !== "";
+  const chatIdDirty = chatId.trim() !== savedChatId;
+  const isDirty = tokenDirty || webhookDirty || chatIdDirty;
+
+  async function onSave() {
+    const patch: { telegram_bot_token?: string; telegram_chat_id?: string; telegram_webhook_secret?: string } = {};
+    if (tokenDirty) patch.telegram_bot_token = botToken;
+    if (webhookDirty) patch.telegram_webhook_secret = webhookSecret;
+    if (chatIdDirty) patch.telegram_chat_id = chatId.trim();
+    try {
+      await update.mutateAsync(patch);
+      // Clear password fields so they don't sit in DOM after save.
+      setBotToken("");
+      setWebhookSecret("");
+      toast.success(t("settings.telegram.saved"));
+    } catch (e) {
+      toast.error((e as Error).message || t("common.failed"));
+    }
+  }
+
+  async function onTest() {
+    try {
+      const r = await test.mutateAsync();
+      if (r.ok) {
+        toast.success(t("settings.telegram.testSent"));
+      } else {
+        toast.error(t("settings.telegram.testFailed", { error: r.message ?? "" }));
+      }
+    } catch (e) {
+      toast.error((e as Error).message || t("common.failed"));
+    }
+  }
+
+  const canTest = tokenSet && Boolean(savedChatId);
+
+  return (
+    <div className="flex flex-col gap-3">
+      <p className="text-sm text-muted">{t("settings.telegram.intro")}</p>
+
+      <Field label={t("settings.telegram.botToken")} hint={t("settings.telegram.botTokenHint")}>
+        <div className="flex items-center gap-2">
+          <Input
+            type="password"
+            autoComplete="new-password"
+            value={botToken}
+            onChange={(e) => setBotToken(e.target.value)}
+            placeholder={tokenSet ? t("settings.telegram.placeholderUnchanged") : "123456:ABC-…"}
+          />
+          <StatusBadge isSet={tokenSet} t={t} />
+        </div>
+      </Field>
+
+      <Field label={t("settings.telegram.chatId")} hint={t("settings.telegram.chatIdHint")}>
+        <div className="flex items-center gap-2">
+          <Input
+            type="text"
+            inputMode="numeric"
+            value={chatId}
+            onChange={(e) => setChatId(e.target.value)}
+            placeholder="123456789"
+          />
+          <StatusBadge isSet={Boolean(savedChatId)} t={t} />
+        </div>
+      </Field>
+
+      <Field label={t("settings.telegram.webhookSecret")} hint={t("settings.telegram.webhookSecretHint")}>
+        <div className="flex items-center gap-2">
+          <Input
+            type="password"
+            autoComplete="new-password"
+            value={webhookSecret}
+            onChange={(e) => setWebhookSecret(e.target.value)}
+            placeholder={webhookSet ? t("settings.telegram.placeholderUnchanged") : ""}
+          />
+          <StatusBadge isSet={webhookSet} t={t} />
+        </div>
+      </Field>
+
+      <div className="flex justify-end gap-2 flex-wrap">
+        {canTest && (
+          <Button variant="secondary" onClick={onTest} disabled={test.isPending}>
+            {test.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+            {t("settings.telegram.sendTest")}
+          </Button>
+        )}
+        <Button onClick={onSave} disabled={!isDirty || update.isPending}>
+          {update.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : t("settings.telegram.save")}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function StatusBadge({ isSet, t }: { isSet: boolean; t: (k: string) => string }) {
+  return (
+    <span
+      className={cn(
+        "shrink-0 text-[11px] font-medium px-2 py-1 rounded-md border",
+        isSet
+          ? "border-ok/40 bg-ok/10 text-ok"
+          : "border-border/60 bg-surface-2 text-subtle"
+      )}
+    >
+      {isSet ? t("settings.telegram.set") : t("settings.telegram.notSet")}
+    </span>
   );
 }
 

@@ -96,6 +96,35 @@ class AppSettingsPatch(BaseModel):
     theme: Optional[str] = None
 
 
+# ---------- Per-user secrets (Telegram, etc.) ----------
+class SecretsStatus(BaseModel):
+    """Masked view of per-user secrets. Booleans only — decrypted secrets
+    never leave the backend on read paths. `telegram_chat_id` is not secret
+    (just an integer chat identifier) so it's returned in plaintext for the
+    UI's "Set as: <chat_id>" indicator."""
+    telegram_bot_token_set: bool
+    telegram_chat_id: Optional[str] = None
+    telegram_webhook_secret_set: bool
+
+
+class SecretsPatch(BaseModel):
+    """Partial update of per-user secrets.
+
+    Semantics:
+    - field omitted (None)     → leave unchanged
+    - field = "" (empty)       → clear that column (set NULL)
+    - field = non-empty string → set that column
+    """
+    telegram_bot_token: Optional[str] = None
+    telegram_chat_id: Optional[str] = None
+    telegram_webhook_secret: Optional[str] = None
+
+
+class TelegramTestResult(BaseModel):
+    ok: bool
+    message: Optional[str] = None
+
+
 # ---------- Course ----------
 class CourseCreate(BaseModel):
     code: CourseCode

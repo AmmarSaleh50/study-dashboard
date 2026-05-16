@@ -235,6 +235,7 @@
       "activity": "Activity",
       "theme": "Theme",
       "security": "Security",
+      "telegram": "Telegram",
       "session": "Session"
     },
     "totp": {
@@ -291,6 +292,23 @@
       "title": "Language",
       "english": "English",
       "german": "Deutsch"
+    },
+    "telegram": {
+      "intro": "Connect your own Telegram bot to receive reminders and run /sync from chat. Credentials are encrypted at rest.",
+      "botToken": "Bot token",
+      "botTokenHint": "Get this from @BotFather.",
+      "chatId": "Chat ID",
+      "chatIdHint": "Send /start to @userinfobot for your numeric chat ID.",
+      "webhookSecret": "Webhook secret",
+      "webhookSecretHint": "Used to verify Telegram → your server. Any random string.",
+      "set": "Set",
+      "notSet": "Not set",
+      "save": "Save",
+      "saved": "Telegram credentials saved.",
+      "sendTest": "Send test message",
+      "testSent": "Test message sent.",
+      "testFailed": "Test failed: {{error}}",
+      "placeholderUnchanged": "•••• (saved — type to change)"
     }
   },
   "forms": {

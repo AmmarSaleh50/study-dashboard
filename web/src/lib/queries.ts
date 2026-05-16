@@ -191,6 +191,50 @@ export function useUpdateAppSettings() {
   });
 }
 
+// ── Per-user secrets (Telegram) ────────────────────────────────────────────
+export type SecretsStatus = {
+  telegram_bot_token_set: boolean;
+  telegram_chat_id: string | null;
+  telegram_webhook_secret_set: boolean;
+};
+
+export type SecretsPatch = {
+  telegram_bot_token?: string;       // "" to clear, non-empty to set
+  telegram_chat_id?: string;
+  telegram_webhook_secret?: string;
+};
+
+export type TelegramTestResult = {
+  ok: boolean;
+  message?: string | null;
+};
+
+export function useSecretsStatus() {
+  return useQuery({
+    queryKey: ["secrets-status"] as const,
+    queryFn: () => api.get<SecretsStatus>("/api/settings/secrets"),
+    staleTime: 60_000,
+  });
+}
+
+export function useUpdateSecrets() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (patch: SecretsPatch) =>
+      api.patch<SecretsStatus>("/api/settings/secrets", patch),
+    onSuccess: (data) => {
+      qc.setQueryData(["secrets-status"], data);
+    },
+  });
+}
+
+export function useTelegramTest() {
+  return useMutation({
+    mutationFn: () =>
+      api.post<TelegramTestResult>("/api/settings/telegram/test", {}),
+  });
+}
+
 // ── Slots / Exams ──────────────────────────────────────────────────────────
 export function useSlots(course_code?: string) {
   return useQuery({
