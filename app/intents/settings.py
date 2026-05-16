@@ -1,7 +1,7 @@
 """Settings intents — single entry point for both REST and MCP callers.
 
-Today: thin pass-through to app.services.settings. The user_id parameter
-is accepted but ignored until Phase 2 wires up per-user filtering.
+Pass-through to app.services.settings. The user_id parameter is forwarded to
+the service, which filters by it via WHERE user_id = $1.
 """
 from uuid import UUID
 
