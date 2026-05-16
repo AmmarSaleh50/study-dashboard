@@ -301,18 +301,17 @@ async def test_search_returns_matching_rows(client, db_conn):
     from app.services import file_index as svc
     await _clear_file_index(db_conn)
     # Seed file_index directly — search() doesn't need actual files on disk.
-    # user_id defaults to the sentinel (Phase 1 column default).
     async with db_conn.connection() as conn, conn.cursor() as cur:
         await cur.execute(
-            "INSERT INTO file_index (path, course_code, size, sha256, "
-            "text_content) VALUES (%s, %s, %s, %s, %s)",
-            (_full_path("ASB/quantum.md"), "ASB", 100, "deadbeef" * 8,
+            "INSERT INTO file_index (user_id, path, course_code, size, sha256, "
+            "text_content) VALUES (%s, %s, %s, %s, %s, %s)",
+            (SENTINEL_USER_ID, _full_path("ASB/quantum.md"), "ASB", 100, "deadbeef" * 8,
              "Quantum mechanics is the study of subatomic particles."),
         )
         await cur.execute(
-            "INSERT INTO file_index (path, course_code, size, sha256, "
-            "text_content) VALUES (%s, %s, %s, %s, %s)",
-            (_full_path("ASB/biology.md"), "ASB", 100, "cafe" * 16,
+            "INSERT INTO file_index (user_id, path, course_code, size, sha256, "
+            "text_content) VALUES (%s, %s, %s, %s, %s, %s)",
+            (SENTINEL_USER_ID, _full_path("ASB/biology.md"), "ASB", 100, "cafe" * 16,
              "Photosynthesis converts light to chemical energy."),
         )
 
@@ -371,9 +370,9 @@ async def test_search_no_matches_returns_empty(client, db_conn):
     await _clear_file_index(db_conn)
     async with db_conn.connection() as conn, conn.cursor() as cur:
         await cur.execute(
-            "INSERT INTO file_index (path, course_code, size, sha256, "
-            "text_content) VALUES (%s, %s, %s, %s, %s)",
-            (_full_path("ASB/note.md"), "ASB", 10, "f" * 64, "A short text content."),
+            "INSERT INTO file_index (user_id, path, course_code, size, sha256, "
+            "text_content) VALUES (%s, %s, %s, %s, %s, %s)",
+            (SENTINEL_USER_ID, _full_path("ASB/note.md"), "ASB", 10, "f" * 64, "A short text content."),
         )
 
     rows = await svc.search(SENTINEL_USER_ID, "xyzzy_no_such_word", limit=10)
@@ -389,9 +388,9 @@ async def test_search_respects_limit(client, db_conn):
     async with db_conn.connection() as conn, conn.cursor() as cur:
         for i in range(5):
             await cur.execute(
-                "INSERT INTO file_index (path, course_code, size, sha256, "
-                "text_content) VALUES (%s, %s, %s, %s, %s)",
-                (_full_path(f"ASB/note{i}.md"), "ASB", 10, f"{i:0>64}",
+                "INSERT INTO file_index (user_id, path, course_code, size, sha256, "
+                "text_content) VALUES (%s, %s, %s, %s, %s, %s)",
+                (SENTINEL_USER_ID, _full_path(f"ASB/note{i}.md"), "ASB", 10, f"{i:0>64}",
                  "Photosynthesis converts light to chemical energy."),
             )
 

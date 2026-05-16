@@ -52,3 +52,6 @@ async def test_sentinel_user_uses_env_overrides(monkeypatch):
     assert str(u.id) == custom_uuid
     assert u.email == "admin@example.test"
     assert u.display_name == "Custom Admin"
+    # Restore caches so later tests see the default sentinel UUID.
+    get_settings.cache_clear()
+    _sentinel_user.cache_clear()

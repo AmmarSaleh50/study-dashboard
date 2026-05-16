@@ -21,9 +21,9 @@ async def _seed_course(db_conn, code: str) -> None:
     """Insert a courses row so the events FK constraint is satisfied."""
     async with db_conn.connection() as conn, conn.cursor() as cur:
         await cur.execute(
-            "INSERT INTO courses (code, full_name) VALUES (%s, %s) "
+            "INSERT INTO courses (user_id, code, full_name) VALUES (%s, %s, %s) "
             "ON CONFLICT DO NOTHING",
-            (code, f"Test course {code}"),
+            (SENTINEL_USER_ID, code, f"Test course {code}"),
         )
 
 
