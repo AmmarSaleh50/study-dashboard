@@ -34,8 +34,8 @@ async def test_delete_course_cascades_to_children(client, db_conn):
 
     # Seed the course + one row in each child table.
     await courses_svc.create_course(SENTINEL_USER_ID, CourseCreate(code=code, full_name="Cascade test"))
-    await tasks_svc.create_task(TaskCreate(course_code=code, title="task-row"))
-    await deliverables_svc.create_deliverable(DeliverableCreate(
+    await tasks_svc.create_task(SENTINEL_USER_ID, TaskCreate(course_code=code, title="task-row"))
+    await deliverables_svc.create_deliverable(SENTINEL_USER_ID, DeliverableCreate(
         course_code=code, name="del-row", kind="submission",
         due_at=datetime(2026, 6, 1, tzinfo=timezone.utc),
     ))
@@ -77,7 +77,7 @@ async def test_delete_course_sets_null_on_tasks(client, db_conn):
 
     code = "CASC2"
     await courses_svc.create_course(SENTINEL_USER_ID, CourseCreate(code=code, full_name="SetNull test"))
-    created = await tasks_svc.create_task(TaskCreate(course_code=code, title="orphaned-task"))
+    created = await tasks_svc.create_task(SENTINEL_USER_ID, TaskCreate(course_code=code, title="orphaned-task"))
 
     await courses_svc.delete_course(SENTINEL_USER_ID, code)
 

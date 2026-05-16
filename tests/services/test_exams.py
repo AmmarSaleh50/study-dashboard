@@ -8,6 +8,8 @@ from datetime import datetime, timezone
 
 import pytest
 
+from app.auth import SENTINEL_USER_ID
+
 
 async def _seed_course(db_conn, code: str) -> None:
     """Insert a courses row so the exam FK constraint is satisfied."""
@@ -22,14 +24,14 @@ async def _seed_course(db_conn, code: str) -> None:
 @pytest.mark.asyncio
 async def test_list_exams_empty(client, db_conn):
     from app.services import exams as svc
-    result = await svc.list_exams()
+    result = await svc.list_exams(SENTINEL_USER_ID)
     assert result == []
 
 
 @pytest.mark.asyncio
 async def test_get_exam_missing_returns_none(client, db_conn):
     from app.services import exams as svc
-    result = await svc.get_exam("EXAMT0")
+    result = await svc.get_exam(SENTINEL_USER_ID, "EXAMT0")
     assert result is None
 
 
@@ -41,6 +43,7 @@ async def test_update_exam_inserts_when_missing(client, db_conn):
 
     scheduled = datetime(2026, 7, 20, 9, 0, tzinfo=timezone.utc)
     created = await svc.update_exam(
+        SENTINEL_USER_ID,
         "EXAMT1",
         ExamPatch(
             scheduled_at=scheduled,
@@ -64,7 +67,7 @@ async def test_update_exam_inserts_when_missing(client, db_conn):
     assert created.notes == "midterm"
 
     # Round-trip via get_exam
-    fetched = await svc.get_exam("EXAMT1")
+    fetched = await svc.get_exam(SENTINEL_USER_ID, "EXAMT1")
     assert fetched is not None
     assert fetched.scheduled_at == scheduled
     assert fetched.location == "Room 101"
@@ -78,6 +81,7 @@ async def test_update_exam_updates_when_present(client, db_conn):
 
     # First call: insert
     await svc.update_exam(
+        SENTINEL_USER_ID,
         "EXAMT2",
         ExamPatch(
             scheduled_at=datetime(2026, 7, 20, 9, 0, tzinfo=timezone.utc),
@@ -89,6 +93,7 @@ async def test_update_exam_updates_when_present(client, db_conn):
 
     # Second call: update only some fields — others should remain.
     updated = await svc.update_exam(
+        SENTINEL_USER_ID,
         "EXAMT2",
         ExamPatch(location="Hall B", status="confirmed"),
     )
@@ -106,11 +111,12 @@ async def test_update_exam_empty_patch_when_present_is_noop(client, db_conn):
     from app.services import exams as svc
     await _seed_course(db_conn, "EXAMT3")
     seeded = await svc.update_exam(
+        SENTINEL_USER_ID,
         "EXAMT3",
         ExamPatch(location="Original", duration_min=45),
     )
     # Empty patch on an existing row should return the existing row unchanged.
-    result = await svc.update_exam("EXAMT3", ExamPatch())
+    result = await svc.update_exam(SENTINEL_USER_ID, "EXAMT3", ExamPatch())
     assert result.course_code == "EXAMT3"
     assert result.location == seeded.location
     assert result.duration_min == seeded.duration_min
@@ -123,13 +129,13 @@ async def test_update_exam_empty_patch_when_missing_creates_default(client, db_c
     from app.schemas import ExamPatch
     from app.services import exams as svc
     await _seed_course(db_conn, "EXAMT4")
-    result = await svc.update_exam("EXAMT4", ExamPatch())
+    result = await svc.update_exam(SENTINEL_USER_ID, "EXAMT4", ExamPatch())
     assert result.course_code == "EXAMT4"
     # Defaults from schema
     assert result.status == "planned"
     assert result.weight_pct == 100
     # And it must actually be in the DB
-    fetched = await svc.get_exam("EXAMT4")
+    fetched = await svc.get_exam(SENTINEL_USER_ID, "EXAMT4")
     assert fetched is not None
     assert fetched.course_code == "EXAMT4"
 
@@ -140,13 +146,14 @@ async def test_list_exams_returns_inserted(client, db_conn):
     from app.services import exams as svc
     await _seed_course(db_conn, "EXAMT5")
     await svc.update_exam(
+        SENTINEL_USER_ID,
         "EXAMT5",
         ExamPatch(
             scheduled_at=datetime(2026, 8, 1, 10, 0, tzinfo=timezone.utc),
             location="Aula",
         ),
     )
-    rows = await svc.list_exams()
+    rows = await svc.list_exams(SENTINEL_USER_ID)
     codes = {e.course_code for e in rows}
     assert "EXAMT5" in codes
 
@@ -158,6 +165,7 @@ async def test_update_exam_missing_course_raises(client, db_conn):
     from app.services import exams as svc
     with pytest.raises(Exception):
         await svc.update_exam(
+            SENTINEL_USER_ID,
             "EXNOFK",
             ExamPatch(location="ghost"),
         )
