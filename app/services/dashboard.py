@@ -21,7 +21,7 @@ async def get_dashboard_summary(user_id: UUID) -> DashboardSummary:
     es = await exams_svc.list_exams(user_id)
     ds = await deliverables_svc.list_deliverables(user_id)
     ts = await tasks_svc.list_tasks(user_id)
-    tp = await topics_svc.list_study_topics()
+    tp = await topics_svc.list_study_topics(user_id)
     ls = await lectures_svc.list_lectures(user_id)
     fb = fb_svc.compute_fall_behind(cs, tp, ss, now)
     return DashboardSummary(

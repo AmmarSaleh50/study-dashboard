@@ -1,5 +1,6 @@
 from datetime import datetime, timezone
 from typing import List, Optional
+from uuid import UUID
 
 from .. import db
 from ..schemas import LectureTopicsAdd, LectureCreate, StudyTopic, StudyTopicCreate, StudyTopicPatch
@@ -7,39 +8,39 @@ from ._helpers import model_dump_clean, validated_cols
 
 
 async def list_study_topics(
-    course_code: Optional[str] = None, status: Optional[str] = None
+    user_id: UUID,
+    course_code: Optional[str] = None,
+    status: Optional[str] = None,
 ) -> List[StudyTopic]:
-    where: list[str] = []
-    args: list = []
+    where: list[str] = ["user_id = %s"]
+    args: list = [user_id]
     if course_code:
         where.append("course_code = %s")
         args.append(course_code)
     if status:
         where.append("status = %s")
         args.append(status)
-    sql = "SELECT * FROM study_topics"
-    if where:
-        sql += " WHERE " + " AND ".join(where)
+    sql = "SELECT * FROM study_topics WHERE " + " AND ".join(where)
     sql += " ORDER BY course_code, sort_order"
     rows = await db.fetch(sql, *args)
     return [StudyTopic.model_validate(r) for r in rows]
 
 
-async def create_study_topic(payload: StudyTopicCreate) -> StudyTopic:
+async def create_study_topic(user_id: UUID, payload: StudyTopicCreate) -> StudyTopic:
     data = model_dump_clean(payload)
     cols = validated_cols(StudyTopicCreate, data)
-    placeholders = ", ".join(["%s"] * len(cols))
+    placeholders = ", ".join(["%s"] * (len(cols) + 1))
     row = await db.fetchrow(
-        f"INSERT INTO study_topics ({', '.join(cols)}) "
+        f"INSERT INTO study_topics (user_id, {', '.join(cols)}) "
         f"VALUES ({placeholders}) RETURNING *",
-        *[data[c] for c in cols],
+        user_id, *[data[c] for c in cols],
     )
     if row is None:
         raise ValueError(f"failed to create study topic for {payload.course_code}")
     return StudyTopic.model_validate(row)
 
 
-async def update_study_topic(topic_id: str, patch: StudyTopicPatch) -> StudyTopic:
+async def update_study_topic(user_id: UUID, topic_id: str, patch: StudyTopicPatch) -> StudyTopic:
     data = model_dump_clean(patch)
     if not data:
         raise ValueError("empty patch")
@@ -50,19 +51,21 @@ async def update_study_topic(topic_id: str, patch: StudyTopicPatch) -> StudyTopi
     cols = validated_cols(StudyTopic, data)
     set_clause = ", ".join(f"{c} = %s" for c in cols)
     row = await db.fetchrow(
-        f"UPDATE study_topics SET {set_clause} WHERE id = %s RETURNING *",
-        *[data[c] for c in cols], topic_id,
+        f"UPDATE study_topics SET {set_clause} WHERE id = %s AND user_id = %s RETURNING *",
+        *[data[c] for c in cols], topic_id, user_id,
     )
     if row is None:
         raise ValueError(f"study topic {topic_id} not found")
     return StudyTopic.model_validate(row)
 
 
-async def delete_study_topic(topic_id: str) -> None:
-    await db.execute("DELETE FROM study_topics WHERE id = %s", topic_id)
+async def delete_study_topic(user_id: UUID, topic_id: str) -> None:
+    await db.execute(
+        "DELETE FROM study_topics WHERE id = %s AND user_id = %s", topic_id, user_id
+    )
 
 
-async def add_lecture_topics(payload: LectureTopicsAdd) -> List[StudyTopic]:
+async def add_lecture_topics(user_id: UUID, payload: LectureTopicsAdd) -> List[StudyTopic]:
     """Atomically create-lecture-and-insert-topics, OR insert-topics-only.
 
     The optional lecture creation + every topic insert run inside a single
@@ -101,11 +104,11 @@ async def add_lecture_topics(payload: LectureTopicsAdd) -> List[StudyTopic]:
         if payload.create_lecture and not lecture_id:
             lec_data = model_dump_clean(payload.create_lecture)
             lec_cols = validated_cols(LectureCreate, lec_data)
-            lec_placeholders = ", ".join(["%s"] * len(lec_cols))
+            lec_placeholders = ", ".join(["%s"] * (len(lec_cols) + 1))
             await cur.execute(
-                f"INSERT INTO lectures ({', '.join(lec_cols)}) "
+                f"INSERT INTO lectures (user_id, {', '.join(lec_cols)}) "
                 f"VALUES ({lec_placeholders}) RETURNING id",
-                [lec_data[c] for c in lec_cols],
+                [user_id, *[lec_data[c] for c in lec_cols]],
             )
             lec_row = await cur.fetchone()
             if lec_row is None:
@@ -114,6 +117,14 @@ async def add_lecture_topics(payload: LectureTopicsAdd) -> List[StudyTopic]:
             # Backfill lecture_id into each topic row
             for r in topic_rows:
                 r["lecture_id"] = lecture_id
+        elif lecture_id:
+            # Verify that the referenced lecture belongs to this user.
+            await cur.execute(
+                "SELECT id FROM lectures WHERE id = %s AND user_id = %s LIMIT 1",
+                [lecture_id, user_id],
+            )
+            if await cur.fetchone() is None:
+                raise ValueError(f"lecture {lecture_id} not found")
 
         # 2. Insert topics. Each row may have a different column set
         #    (sparse — None values dropped), so we INSERT row-by-row instead
@@ -121,11 +132,11 @@ async def add_lecture_topics(payload: LectureTopicsAdd) -> List[StudyTopic]:
         #    this transaction.
         for row in topic_rows:
             cols = validated_cols(StudyTopicCreate, row)
-            placeholders = ", ".join(["%s"] * len(cols))
+            placeholders = ", ".join(["%s"] * (len(cols) + 1))
             await cur.execute(
-                f"INSERT INTO study_topics ({', '.join(cols)}) "
+                f"INSERT INTO study_topics (user_id, {', '.join(cols)}) "
                 f"VALUES ({placeholders}) RETURNING *",
-                [row[c] for c in cols],
+                [user_id, *[row[c] for c in cols]],
             )
             inserted_row = await cur.fetchone()
             if inserted_row is None:

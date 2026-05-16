@@ -19,7 +19,7 @@ async def _seed_course(db_conn, code: str = "TEST") -> None:
 @pytest.mark.asyncio
 async def test_list_study_topics_empty(client, db_conn):
     from app.services import study_topics as svc
-    result = await svc.list_study_topics()
+    result = await svc.list_study_topics(SENTINEL_USER_ID)
     assert result == []
 
 
@@ -28,7 +28,7 @@ async def test_create_then_list(client, db_conn):
     from app.schemas import StudyTopicCreate
     from app.services import study_topics as svc
     await _seed_course(db_conn, "ST1")
-    created = await svc.create_study_topic(StudyTopicCreate(
+    created = await svc.create_study_topic(SENTINEL_USER_ID, StudyTopicCreate(
         course_code="ST1",
         chapter="1",
         name="Intro",
@@ -47,7 +47,7 @@ async def test_create_then_list(client, db_conn):
     assert created.sort_order == 0
     assert created.id  # uuid string
 
-    result = await svc.list_study_topics()
+    result = await svc.list_study_topics(SENTINEL_USER_ID)
     assert len(result) == 1
     assert result[0].id == created.id
 
@@ -58,16 +58,16 @@ async def test_list_study_topics_filtered_by_course(client, db_conn):
     from app.services import study_topics as svc
     await _seed_course(db_conn, "AAA")
     await _seed_course(db_conn, "BBB")
-    await svc.create_study_topic(StudyTopicCreate(
+    await svc.create_study_topic(SENTINEL_USER_ID, StudyTopicCreate(
         course_code="AAA", name="A-topic",
     ))
-    await svc.create_study_topic(StudyTopicCreate(
+    await svc.create_study_topic(SENTINEL_USER_ID, StudyTopicCreate(
         course_code="BBB", name="B-topic",
     ))
-    only_aaa = await svc.list_study_topics(course_code="AAA")
+    only_aaa = await svc.list_study_topics(SENTINEL_USER_ID, course_code="AAA")
     assert len(only_aaa) == 1
     assert only_aaa[0].course_code == "AAA"
-    only_bbb = await svc.list_study_topics(course_code="BBB")
+    only_bbb = await svc.list_study_topics(SENTINEL_USER_ID, course_code="BBB")
     assert len(only_bbb) == 1
     assert only_bbb[0].course_code == "BBB"
 
@@ -77,13 +77,13 @@ async def test_list_study_topics_filtered_by_status(client, db_conn):
     from app.schemas import StudyTopicCreate
     from app.services import study_topics as svc
     await _seed_course(db_conn, "STA")
-    await svc.create_study_topic(StudyTopicCreate(
+    await svc.create_study_topic(SENTINEL_USER_ID, StudyTopicCreate(
         course_code="STA", name="open-topic", status="not_started",
     ))
-    await svc.create_study_topic(StudyTopicCreate(
+    await svc.create_study_topic(SENTINEL_USER_ID, StudyTopicCreate(
         course_code="STA", name="done-topic", status="studied",
     ))
-    studied_only = await svc.list_study_topics(status="studied")
+    studied_only = await svc.list_study_topics(SENTINEL_USER_ID, status="studied")
     assert len(studied_only) == 1
     assert studied_only[0].status == "studied"
     assert studied_only[0].name == "done-topic"
@@ -94,11 +94,11 @@ async def test_update_study_topic(client, db_conn):
     from app.schemas import StudyTopicCreate, StudyTopicPatch
     from app.services import study_topics as svc
     await _seed_course(db_conn, "UPD")
-    created = await svc.create_study_topic(StudyTopicCreate(
+    created = await svc.create_study_topic(SENTINEL_USER_ID, StudyTopicCreate(
         course_code="UPD", name="Original", status="not_started",
     ))
     updated = await svc.update_study_topic(
-        created.id, StudyTopicPatch(name="Renamed", confidence=4)
+        SENTINEL_USER_ID, created.id, StudyTopicPatch(name="Renamed", confidence=4)
     )
     assert updated.name == "Renamed"
     assert updated.confidence == 4
@@ -112,12 +112,12 @@ async def test_update_study_topic_studied_sets_last_reviewed_at(client, db_conn)
     from app.schemas import StudyTopicCreate, StudyTopicPatch
     from app.services import study_topics as svc
     await _seed_course(db_conn, "STD")
-    created = await svc.create_study_topic(StudyTopicCreate(
+    created = await svc.create_study_topic(SENTINEL_USER_ID, StudyTopicCreate(
         course_code="STD", name="To-review", status="not_started",
     ))
     assert created.last_reviewed_at is None
     updated = await svc.update_study_topic(
-        created.id, StudyTopicPatch(status="studied")
+        SENTINEL_USER_ID, created.id, StudyTopicPatch(status="studied")
     )
     assert updated.status == "studied"
     assert updated.last_reviewed_at is not None
@@ -128,11 +128,11 @@ async def test_update_study_topic_mastered_sets_last_reviewed_at(client, db_conn
     from app.schemas import StudyTopicCreate, StudyTopicPatch
     from app.services import study_topics as svc
     await _seed_course(db_conn, "MST")
-    created = await svc.create_study_topic(StudyTopicCreate(
+    created = await svc.create_study_topic(SENTINEL_USER_ID, StudyTopicCreate(
         course_code="MST", name="Master-this",
     ))
     updated = await svc.update_study_topic(
-        created.id, StudyTopicPatch(status="mastered")
+        SENTINEL_USER_ID, created.id, StudyTopicPatch(status="mastered")
     )
     assert updated.status == "mastered"
     assert updated.last_reviewed_at is not None
@@ -144,6 +144,7 @@ async def test_update_study_topic_empty_patch_raises(client, db_conn):
     from app.services import study_topics as svc
     with pytest.raises(ValueError):
         await svc.update_study_topic(
+            SENTINEL_USER_ID,
             "00000000-0000-0000-0000-000000000000",
             StudyTopicPatch(),
         )
@@ -155,6 +156,7 @@ async def test_update_study_topic_missing_id_raises(client, db_conn):
     from app.services import study_topics as svc
     with pytest.raises(ValueError):
         await svc.update_study_topic(
+            SENTINEL_USER_ID,
             "00000000-0000-0000-0000-000000000000",
             StudyTopicPatch(name="ghost"),
         )
@@ -165,11 +167,11 @@ async def test_delete_study_topic(client, db_conn):
     from app.schemas import StudyTopicCreate
     from app.services import study_topics as svc
     await _seed_course(db_conn, "DEL")
-    created = await svc.create_study_topic(StudyTopicCreate(
+    created = await svc.create_study_topic(SENTINEL_USER_ID, StudyTopicCreate(
         course_code="DEL", name="Doomed",
     ))
-    await svc.delete_study_topic(created.id)
-    result = await svc.list_study_topics(course_code="DEL")
+    await svc.delete_study_topic(SENTINEL_USER_ID, created.id)
+    result = await svc.list_study_topics(SENTINEL_USER_ID, course_code="DEL")
     assert result == []
 
 
@@ -195,7 +197,7 @@ async def test_add_lecture_topics_with_existing_lecture_id(client, db_conn):
         ],
         lecture_id=lec.id,
     )
-    inserted = await svc.add_lecture_topics(payload)
+    inserted = await svc.add_lecture_topics(SENTINEL_USER_ID, payload)
     assert len(inserted) == 3
     names = {t.name for t in inserted}
     assert names == {"Topic A", "Topic B", "Topic C"}
@@ -235,7 +237,7 @@ async def test_add_lecture_topics_auto_creates_lecture(client, db_conn):
             title="Auto-week",
         ),
     )
-    inserted = await svc.add_lecture_topics(payload)
+    inserted = await svc.add_lecture_topics(SENTINEL_USER_ID, payload)
     assert len(inserted) == 2
     # All inserted topics should share the same lecture_id (auto-created)
     lecture_ids = {t.lecture_id for t in inserted}

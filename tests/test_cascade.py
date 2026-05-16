@@ -42,7 +42,7 @@ async def test_delete_course_cascades_to_children(client, db_conn):
     await lectures_svc.create_lecture(SENTINEL_USER_ID, LectureCreate(
         course_code=code, held_on=date(2026, 5, 20), kind="lecture",
     ))
-    await topics_svc.create_study_topic(StudyTopicCreate(
+    await topics_svc.create_study_topic(SENTINEL_USER_ID, StudyTopicCreate(
         course_code=code, name="topic-row", kind="lecture",
     ))
     await slots_svc.create_slot(SENTINEL_USER_ID, SlotCreate(
