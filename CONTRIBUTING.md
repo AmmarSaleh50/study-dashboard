@@ -4,6 +4,25 @@ Thanks for considering a contribution — genuinely. Whether it's a one-line typ
 
 This file just has a couple of notes so you know what to expect and we can keep the back-and-forth short.
 
+## Glossary
+
+Two related but distinct identities show up across the codebase. Phase 0
+makes the distinction explicit so the multi-tenant migration in later
+phases is easier to reason about.
+
+- **Operator** — server administrator who runs `./deploy.sh`, has SSH
+  access to the deploy box, and sets env vars like `OPERATOR_EMAIL`,
+  `SECRETS_ENCRYPTION_KEY`, and the like. Always exactly one per
+  deployment.
+- **User** — a row in the `users` table (added in Phase 1 of the
+  multi-tenant migration). Created via `/auth/signup` (post-Phase 3) or
+  by the operator via CLI. Many users per deployment.
+
+Pre-multi-tenant (≤ v0.6) the operator and user are the same person.
+Post v0.7, they diverge: the operator administers the server; users sign
+up and use the product. Auth code paths use `User` (a dataclass in
+`app/auth.py`) to carry the user identity through requests.
+
 ## What's in scope
 
 Basically anything that makes the app better for someone self-hosting it. A non-exhaustive list of things I'd love help with:

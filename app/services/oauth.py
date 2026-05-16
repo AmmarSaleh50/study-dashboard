@@ -1,8 +1,9 @@
 """OAuth 2.1 authorization server storage helpers (Postgres-backed).
 
-Single-user personal server: the only "user" is the deploy owner, authenticated
-via the existing dashboard password cookie during the consent step. We don't
-model users as a separate concept — every issued token implicitly belongs to them.
+Phase 0 (single-operator) deployment: the operator (server admin) authenticates
+via the existing dashboard password cookie during the consent step. Users as a
+distinct database concept are introduced in Phase 1 — until then every issued
+token implicitly belongs to the operator.
 """
 from __future__ import annotations
 
