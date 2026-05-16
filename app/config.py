@@ -12,7 +12,6 @@ class Settings(BaseSettings):
     )
 
     # Auth
-    app_password_hash: str = Field(default="")
     # No default — production deploys must set SESSION_SECRET. The setter
     # below raises if it's left empty so we fail-closed instead of signing
     # cookies with a publicly-known string.

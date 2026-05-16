@@ -86,19 +86,6 @@ def hash_password(plain: str) -> str:
     return _ph.hash(plain)
 
 
-def verify_password(plain: str) -> bool:
-    s = get_settings()
-    if not s.app_password_hash:
-        return False
-    try:
-        _ph.verify(s.app_password_hash, plain)
-        return True
-    except VerifyMismatchError:
-        return False
-    except Exception:
-        return False
-
-
 async def verify_password_for_user(email: str, plain: str) -> Optional[User]:
     """Look up user by email; argon2-verify; return User or None.
 

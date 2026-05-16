@@ -27,12 +27,19 @@ _TEST_PASSWORD = "test-password-1234"
 _TEST_PASSWORD_HASH = PasswordHasher().hash(_TEST_PASSWORD)
 
 
+_OPERATOR_EMAIL = "operator@local"
+
+
 @pytest_asyncio.fixture
 async def https_client(db_conn, monkeypatch):
     """Like the conftest `client` fixture but with `https://test` base_url
-    so Secure cookies survive the round-trip, plus a known
-    APP_PASSWORD_HASH so /api/auth/login can succeed."""
-    monkeypatch.setenv("APP_PASSWORD_HASH", _TEST_PASSWORD_HASH)
+    so Secure cookies survive the round-trip. Seeds the operator's
+    password_hash directly in the DB so /api/auth/login can succeed."""
+    async with db_conn.connection() as conn, conn.cursor() as cur:
+        await cur.execute(
+            "UPDATE users SET password_hash = %s WHERE email = %s",
+            (_TEST_PASSWORD_HASH, _OPERATOR_EMAIL),
+        )
     get_settings.cache_clear()
     monkeypatch.setattr(db_module, "_pool", db_conn)
 
@@ -66,7 +73,7 @@ async def test_oauth_full_lifecycle(https_client, db_conn):
 
     # 2. Login with the test password (no TOTP yet).
     login = await https_client.post(
-        "/api/auth/login", json={"password": _TEST_PASSWORD}
+        "/api/auth/login", json={"email": _OPERATOR_EMAIL, "password": _TEST_PASSWORD}
     )
     assert login.status_code == 200, login.text
     assert https_client.cookies.get("study_session")
@@ -166,20 +173,20 @@ async def test_login_rate_limit_then_success(https_client, db_conn):
     # 5 failed attempts: each 401 with "invalid credentials".
     for _ in range(5):
         bad = await https_client.post(
-            "/api/auth/login", json={"password": "wrong"}
+            "/api/auth/login", json={"email": _OPERATOR_EMAIL, "password": "wrong"}
         )
         assert bad.status_code == 401, bad.text
 
     # 6th attempt: bucket is full → 429 BEFORE reaching verify_password.
     capped = await https_client.post(
-        "/api/auth/login", json={"password": "wrong"}
+        "/api/auth/login", json={"email": _OPERATOR_EMAIL, "password": "wrong"}
     )
     assert capped.status_code == 429, capped.text
 
     # Even a correct password is rejected once rate-limited (the limit is
-    # checked BEFORE verify_password).
+    # checked BEFORE verify_password_for_user).
     still_capped = await https_client.post(
-        "/api/auth/login", json={"password": _TEST_PASSWORD}
+        "/api/auth/login", json={"email": _OPERATOR_EMAIL, "password": _TEST_PASSWORD}
     )
     assert still_capped.status_code == 429
 
@@ -190,7 +197,7 @@ async def test_login_rate_limit_then_success(https_client, db_conn):
 
     # Correct password now succeeds.
     ok = await https_client.post(
-        "/api/auth/login", json={"password": _TEST_PASSWORD}
+        "/api/auth/login", json={"email": _OPERATOR_EMAIL, "password": _TEST_PASSWORD}
     )
     assert ok.status_code == 200, ok.text
     assert https_client.cookies.get("study_session")
@@ -202,9 +209,9 @@ async def test_login_rate_limit_then_success(https_client, db_conn):
 
 @pytest.mark.asyncio
 async def test_totp_enroll_and_login(https_client, db_conn):
-    # 1. Login with password only (TOTP not yet enabled).
+    # 1. Login with email + password (TOTP not yet enabled).
     login = await https_client.post(
-        "/api/auth/login", json={"password": _TEST_PASSWORD}
+        "/api/auth/login", json={"email": _OPERATOR_EMAIL, "password": _TEST_PASSWORD}
     )
     assert login.status_code == 200, login.text
 
@@ -224,25 +231,26 @@ async def test_totp_enroll_and_login(https_client, db_conn):
     # Drop the cookie so subsequent /login attempts are unauthenticated.
     https_client.cookies.clear()
 
-    # 4. Password without code → 401 totp_required.
+    # 4. Email + password without code → 401 totp_required.
     pw_only = await https_client.post(
-        "/api/auth/login", json={"password": _TEST_PASSWORD}
+        "/api/auth/login", json={"email": _OPERATOR_EMAIL, "password": _TEST_PASSWORD}
     )
     assert pw_only.status_code == 401, pw_only.text
     assert pw_only.json()["detail"] == "totp_required"
 
-    # 5. Password + wrong code → 401 invalid totp.
+    # 5. Email + password + wrong code → 401 invalid totp.
     bad_code = await https_client.post(
         "/api/auth/login",
-        json={"password": _TEST_PASSWORD, "totp_code": "000000"},
+        json={"email": _OPERATOR_EMAIL, "password": _TEST_PASSWORD, "totp_code": "000000"},
     )
     assert bad_code.status_code == 401, bad_code.text
     assert bad_code.json()["detail"] == "invalid totp code"
 
-    # 6. Password + correct code → 200, cookie set.
+    # 6. Email + password + correct code → 200, cookie set.
     good = await https_client.post(
         "/api/auth/login",
         json={
+            "email": _OPERATOR_EMAIL,
             "password": _TEST_PASSWORD,
             "totp_code": pyotp.TOTP(secret).now(),
         },
@@ -253,18 +261,9 @@ async def test_totp_enroll_and_login(https_client, db_conn):
 
 @pytest.mark.asyncio
 async def test_login_with_email_and_password(https_client, db_conn):
-    """The new email+password path works against an operator-seeded user."""
-    # Operator user is seeded by Phase 1 migration with NULL password_hash.
-    # Set a password hash directly via SQL (mimicking the seed script).
-    pw_hash = PasswordHasher().hash(_TEST_PASSWORD)
-    async with db_conn.connection() as conn, conn.cursor() as cur:
-        await cur.execute(
-            "UPDATE users SET password_hash = %s WHERE email = 'operator@local'",
-            (pw_hash,),
-        )
-    # Now login with email + password
+    """Email+password login works; password_hash is seeded by the fixture."""
     resp = await https_client.post("/api/auth/login", json={
-        "email": "operator@local",
+        "email": _OPERATOR_EMAIL,
         "password": _TEST_PASSWORD,
     })
     assert resp.status_code == 200, resp.text

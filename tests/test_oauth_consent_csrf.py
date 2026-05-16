@@ -20,11 +20,16 @@ from app.config import get_settings
 
 _TEST_PASSWORD = "test-password-csrf"
 _TEST_PASSWORD_HASH = PasswordHasher().hash(_TEST_PASSWORD)
+_OPERATOR_EMAIL = "operator@local"
 
 
 @pytest_asyncio.fixture
 async def https_client(db_conn, monkeypatch):
-    monkeypatch.setenv("APP_PASSWORD_HASH", _TEST_PASSWORD_HASH)
+    async with db_conn.connection() as conn, conn.cursor() as cur:
+        await cur.execute(
+            "UPDATE users SET password_hash = %s WHERE email = %s",
+            (_TEST_PASSWORD_HASH, _OPERATOR_EMAIL),
+        )
     get_settings.cache_clear()
     monkeypatch.setattr(db_module, "_pool", db_conn)
 
@@ -57,7 +62,7 @@ async def _register_and_login(client: AsyncClient) -> str:
     client_id = reg.json()["client_id"]
 
     login = await client.post(
-        "/api/auth/login", json={"password": _TEST_PASSWORD}
+        "/api/auth/login", json={"email": _OPERATOR_EMAIL, "password": _TEST_PASSWORD}
     )
     assert login.status_code == 200
     return client_id

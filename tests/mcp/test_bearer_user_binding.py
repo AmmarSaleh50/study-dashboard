@@ -20,15 +20,11 @@ from uuid import UUID
 
 import pytest
 import pytest_asyncio
-from argon2 import PasswordHasher
 from httpx import ASGITransport, AsyncClient
 
 import app.db as db_module
 from app.config import get_settings
 
-
-_TEST_PASSWORD = "test-password-1234"
-_TEST_PASSWORD_HASH = PasswordHasher().hash(_TEST_PASSWORD)
 
 _USER_A_ID = "00000000-0000-0000-0000-000000000001"  # operator (already seeded)
 _USER_B_ID = "11111111-1111-1111-1111-111111111111"
@@ -37,7 +33,6 @@ _USER_B_ID = "11111111-1111-1111-1111-111111111111"
 @pytest_asyncio.fixture
 async def https_client(db_conn, monkeypatch):
     """https://test base_url so Secure cookies survive the round-trip."""
-    monkeypatch.setenv("APP_PASSWORD_HASH", _TEST_PASSWORD_HASH)
     get_settings.cache_clear()
     monkeypatch.setattr(db_module, "_pool", db_conn)
 

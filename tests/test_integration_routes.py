@@ -56,10 +56,10 @@ async def test_dashboard_aggregates_every_service(db_conn, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_login_flow_uses_async_db_paths(client, db_conn, monkeypatch):
-    """Drive /auth/login through the async ratelimit + auth.get_totp_state
-    paths. Expects a 401 (no password configured, but the request must reach
+    """Drive /auth/login through the async ratelimit + verify_password_for_user
+    paths. Expects a 401 (unknown email, but the request must reach
     that error rather than 500-ing on a missed await)."""
-    # No app_password_hash configured → verify_password returns False → 401.
-    resp = await client.post("/api/auth/login", json={"password": "irrelevant"})
+    # Unknown email → verify_password_for_user returns None → 401.
+    resp = await client.post("/api/auth/login", json={"email": "nobody@test.local", "password": "irrelevant"})
     assert resp.status_code == 401, resp.text
     assert resp.json()["detail"] == "invalid credentials"

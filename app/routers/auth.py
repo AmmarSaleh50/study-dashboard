@@ -12,10 +12,8 @@ from ..auth import (
     issue_session,
     optional_auth,
     require_auth,
-    verify_password,
     verify_password_for_user,
     verify_totp,
-    _sentinel_user,
 )
 from ..ratelimit import check_login_rate, record_login_attempt, check_auth_rate
 from ..schemas import LoginRequest, SessionInfo, TotpSetupResponse, TotpVerifyRequest, SignupRequest, ForgotRequest, ResetRequest
@@ -34,16 +32,7 @@ def _verify_totp_code(code: str, secret: str) -> bool:
 async def login(body: LoginRequest, request: Request, response: Response) -> SessionInfo:
     await check_login_rate(request)
 
-    user: Optional[User] = None
-
-    if body.email:
-        # Email+password path: lookup + argon2 verify
-        user = await verify_password_for_user(body.email, body.password)
-    else:
-        # Operator-legacy fallback: verify against APP_PASSWORD_HASH
-        legacy_ok = verify_password(body.password)
-        if legacy_ok:
-            user = _sentinel_user()
+    user: Optional[User] = await verify_password_for_user(body.email, body.password)
 
     if user is None:
         await record_login_attempt(request, False)
