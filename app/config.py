@@ -17,6 +17,23 @@ class Settings(BaseSettings):
     # below raises if it's left empty so we fail-closed instead of signing
     # cookies with a publicly-known string.
     session_secret: str = Field(default="")
+
+    # Operator identity — Phase 1+. Defaults match the seed row created by
+    # the users-table migration. Self-hosters can override these — but if you
+    # do, also UPDATE the users row in DB to match (or wait for Phase 3's
+    # signup endpoints).
+    operator_user_id: str = Field(
+        default="00000000-0000-0000-0000-000000000001",
+        description="UUID of the operator user (matches users.id row in DB).",
+    )
+    operator_email: str = Field(
+        default="operator@local",
+        description="Email of the operator user (matches users.email).",
+    )
+    operator_display_name: str = Field(
+        default="Operator",
+        description="Display name of the operator user.",
+    )
     session_ttl_days: int = 30
 
     # Expose FastAPI's auto-generated /api/docs (Swagger UI) + /api/openapi.json.

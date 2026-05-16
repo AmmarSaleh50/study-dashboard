@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from datetime import datetime, timezone, timedelta
+from functools import lru_cache
 from typing import Optional
 from uuid import UUID
 
@@ -11,11 +12,6 @@ from argon2.exceptions import VerifyMismatchError
 
 from . import db
 from .config import get_settings
-
-# Sentinel for Phase 0 — single-operator deployment. Task 9 of Phase 0
-# wraps this in a User dataclass; Phase 1 replaces it with a real users.id
-# lookup off the session cookie.
-SENTINEL_USER_ID = UUID("00000000-0000-0000-0000-000000000001")
 
 
 @dataclass(frozen=True)
@@ -30,11 +26,25 @@ class User:
     display_name: str
 
 
-_SENTINEL_USER = User(
-    id=SENTINEL_USER_ID,
-    email="operator@local",
-    display_name="Operator",
-)
+@lru_cache(maxsize=1)
+def _sentinel_user() -> User:
+    """Build the sentinel User from env-configured operator identity.
+
+    Phase 1: env-driven defaults; the operator's row in the users table
+    must match these values. Phase 3 makes user identity DB-driven via the
+    session cookie payload.
+    """
+    s = get_settings()
+    return User(
+        id=UUID(s.operator_user_id),
+        email=s.operator_email,
+        display_name=s.operator_display_name,
+    )
+
+
+# Backwards-compat module-level constants. These resolve at import time
+# from env; tests can re-import after env changes to pick up new values.
+SENTINEL_USER_ID = UUID(get_settings().operator_user_id)
 
 COOKIE_NAME = "study_session"
 _ph = PasswordHasher()
@@ -116,7 +126,7 @@ async def optional_user(
     """
     s = get_settings()
     if _verify_cookie(study_session, s.session_ttl_days * 24 * 60 * 60):
-        return _SENTINEL_USER
+        return _sentinel_user()
     return None
 
 

@@ -32,14 +32,14 @@ async def test_dashboard_aggregates_every_service(db_conn, monkeypatch):
     from httpx import ASGITransport, AsyncClient
 
     import app.db as db_module
-    from app.auth import require_user, _SENTINEL_USER
+    from app.auth import require_user, _sentinel_user
     from app.main import create_app
 
     monkeypatch.setattr(db_module, "_pool", db_conn)
     app = create_app()
     # Bypass the cookie-signed auth — Depends(require_user) is short-circuited
     # to always return the sentinel User for the duration of this test.
-    app.dependency_overrides[require_user] = lambda: _SENTINEL_USER
+    app.dependency_overrides[require_user] = lambda: _sentinel_user()
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
         resp = await ac.get("/api/dashboard")
