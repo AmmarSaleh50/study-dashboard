@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 from datetime import datetime, timezone, timedelta
 from typing import Optional
 from uuid import UUID
@@ -15,6 +16,25 @@ from .config import get_settings
 # wraps this in a User dataclass; Phase 1 replaces it with a real users.id
 # lookup off the session cookie.
 SENTINEL_USER_ID = UUID("00000000-0000-0000-0000-000000000001")
+
+
+@dataclass(frozen=True)
+class User:
+    """Phase 0 placeholder. Phase 1 hydrates this from a users table read.
+
+    The id is opaque to callers — pass it through to intents; the intents
+    will use it for filtering once Phase 2 wires that up.
+    """
+    id: UUID
+    email: str
+    display_name: str
+
+
+_SENTINEL_USER = User(
+    id=SENTINEL_USER_ID,
+    email="operator@local",
+    display_name="Operator",
+)
 
 COOKIE_NAME = "study_session"
 _ph = PasswordHasher()
@@ -84,6 +104,30 @@ async def require_auth(
     if not ok:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="not authenticated")
     return True
+
+
+async def optional_user(
+    study_session: Optional[str] = Cookie(default=None, alias=COOKIE_NAME),
+) -> Optional[User]:
+    """Phase 0: returns the sentinel User if the cookie verifies, else None.
+
+    Phase 1: parses user_id out of the signed cookie payload and hydrates
+    from users table.
+    """
+    s = get_settings()
+    if _verify_cookie(study_session, s.session_ttl_days * 24 * 60 * 60):
+        return _SENTINEL_USER
+    return None
+
+
+async def require_user(
+    study_session: Optional[str] = Cookie(default=None, alias=COOKIE_NAME),
+) -> User:
+    """Like optional_user but raises 401 if not authed."""
+    user = await optional_user(study_session)
+    if user is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="not authenticated")
+    return user
 
 
 def utcnow() -> datetime:

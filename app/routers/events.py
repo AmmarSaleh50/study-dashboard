@@ -2,7 +2,7 @@ from datetime import datetime
 from typing import List, Optional
 from fastapi import APIRouter, Depends
 
-from ..auth import require_auth, SENTINEL_USER_ID
+from ..auth import require_user, User
 from ..schemas import Event, EventCreate
 from ..intents import events as intent
 
@@ -15,11 +15,11 @@ async def list_(
     kind: Optional[str] = None,
     course_code: Optional[str] = None,
     limit: int = 100,
-    _: bool = Depends(require_auth),
+    user: User = Depends(require_user),
 ) -> List[Event]:
-    return await intent.list_events(SENTINEL_USER_ID, since=since, kind=kind, course_code=course_code, limit=limit)
+    return await intent.list_events(user.id, since=since, kind=kind, course_code=course_code, limit=limit)
 
 
 @router.post("", response_model=Event)
-async def create(body: EventCreate, _: bool = Depends(require_auth)) -> Event:
-    return await intent.record_event(SENTINEL_USER_ID, body)
+async def create(body: EventCreate, user: User = Depends(require_user)) -> Event:
+    return await intent.record_event(user.id, body)

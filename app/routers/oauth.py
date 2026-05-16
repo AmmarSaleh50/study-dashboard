@@ -15,10 +15,10 @@ import html
 from typing import Any, Optional
 from urllib.parse import quote, urlencode
 
-from fastapi import APIRouter, Body, Cookie, Form, HTTPException, Query, Request
+from fastapi import APIRouter, Body, Cookie, Depends, Form, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 
-from ..auth import COOKIE_NAME, optional_auth
+from ..auth import COOKIE_NAME, optional_auth, require_user, User
 from ..config import get_settings
 from ..services import oauth as oauth_svc
 
@@ -232,10 +232,8 @@ async def consent(
     code_challenge_method: str = Form("S256"),
     scope: Optional[str] = Form(None),
     state: Optional[str] = Form(None),
-    study_session: Optional[str] = Cookie(default=None, alias=COOKIE_NAME),
+    user: User = Depends(require_user),
 ) -> Response:
-    if not await optional_auth(study_session):
-        raise HTTPException(401, "not authenticated")
 
     client = await oauth_svc.get_client(client_id)
     if not client or redirect_uri not in client["redirect_uris"]:
