@@ -13,7 +13,6 @@ from itsdangerous import TimestampSigner, BadSignature, SignatureExpired
 from argon2 import PasswordHasher
 from argon2.exceptions import VerifyMismatchError
 
-from . import db
 from .config import get_settings
 
 

@@ -16,7 +16,6 @@ to `/opt/courses`). All routes are session-auth-gated.
 """
 from __future__ import annotations
 
-import mimetypes
 import os
 import unicodedata
 from typing import Any, Optional

@@ -7,7 +7,6 @@ schema migrations:
 - The operator seed row exists after migrations.
 - Two users can have the same course code (composite PK on (user_id, code)).
 """
-from datetime import datetime, timezone, date
 from uuid import UUID, uuid4
 
 import pytest

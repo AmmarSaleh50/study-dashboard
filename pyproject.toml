@@ -48,3 +48,12 @@ testpaths = ["tests"]
 [tool.ruff]
 line-length = 100
 target-version = "py312"
+extend-exclude = ["scripts/_deprecated", "migrations/_archive"]
+
+[tool.ruff.lint.per-file-ignores]
+# main.py imports the routers + mcp_http AFTER setting the httpx log level —
+# httpx logs the full request URL at INFO, which leaks the Telegram bot token.
+# Imports must come after `logging.getLogger("httpx").setLevel(WARNING)`.
+"app/main.py" = ["E402"]
+# Test helper class with single-line method bodies — common pytest idiom.
+"tests/services/test_email.py" = ["E702"]

@@ -8,7 +8,7 @@ Each test:
 - Has both the operator and the second user create some data of their own.
 - Asserts each service's list_X(user_id) returns only that user's rows.
 """
-from datetime import datetime, timezone, date
+from datetime import datetime, timezone
 from uuid import UUID, uuid4
 
 import pytest

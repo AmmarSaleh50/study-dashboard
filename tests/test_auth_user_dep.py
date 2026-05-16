@@ -4,7 +4,6 @@ Phase 3: cookie payload carries user_id; require_user hits the users table.
 Legacy `b"authed"` cookies fall back to the sentinel user (migration grace).
 """
 import pytest
-from uuid import UUID
 
 
 @pytest.mark.asyncio
@@ -62,7 +61,8 @@ async def test_sentinel_user_uses_env_overrides(monkeypatch):
 async def test_require_user_returns_db_user_from_new_cookie_payload(client, db_conn):
     """The new cookie payload carries user_id; require_user looks up users table."""
     from app.auth import require_user, _signer, SENTINEL_USER_ID
-    import json, time
+    import json
+    import time
 
     # The sentinel user already exists in the DB (seeded by Phase 1 migration).
     payload = json.dumps({"u": str(SENTINEL_USER_ID), "iat": int(time.time())}).encode()
@@ -78,7 +78,8 @@ async def test_require_user_unknown_user_id_in_cookie_raises_401(client, db_conn
     """A signed cookie with a user_id that doesn't exist in users → 401."""
     from fastapi import HTTPException
     from app.auth import require_user, _signer
-    import json, time
+    import json
+    import time
     from uuid import uuid4
 
     unknown = str(uuid4())

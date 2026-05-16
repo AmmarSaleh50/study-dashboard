@@ -114,7 +114,6 @@ def _strip_outer_transaction(sql: str) -> str:
 
     # Track $$-quoted regions so we don't touch plpgsql block syntax inside them.
     in_dollar = False
-    dollar_tag = ""
 
     # First pass: find indices of leading BEGIN and trailing COMMIT (only when
     # at outermost level, only at file boundaries).
