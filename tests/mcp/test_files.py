@@ -1,11 +1,12 @@
-"""MCP tool tests — course files + notify_telegram (3 tools, 7 tests).
+"""MCP tool tests — course files + notify_telegram (3 tools, 9 tests).
 
 Coverage: list_course_files, read_course_file, notify_telegram.
 
 `list_course_files` and `read_course_file` are filesystem-backed via
 `app.services.storage` — point `STUDY_ROOT` at a per-test `tmp_path` and
-write fixtures to disk directly. `notify_telegram` is sync and HTTP-backed,
-so we monkeypatch `httpx.post` for the success path.
+write fixtures to disk directly. `notify_telegram` is async and HTTP-backed,
+so we monkeypatch `httpx.post` for the success path and mock `get_secrets`
+for the user_secrets path.
 """
 import pytest
 
@@ -123,12 +124,26 @@ async def test_read_pdf_with_page_range(client, db_conn, mcp_server, study_root)
 async def test_notify_telegram_missing_env_returns_error(
     client, db_conn, mcp_server, monkeypatch
 ):
-    """Without TELEGRAM_BOT_TOKEN/CHAT_ID set, the tool returns ok=False with an error."""
+    """Without user_secrets or env vars set, the tool returns ok=False with an error."""
+    from unittest.mock import AsyncMock, patch
+    from app.services.user_secrets import UserSecrets
+    from app.auth import SENTINEL_USER_ID
+
     notify_telegram = get_tool_fn(mcp_server, "notify_telegram")
     monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
     monkeypatch.delenv("TELEGRAM_CHAT_ID", raising=False)
 
-    result = notify_telegram(text="hi")
+    empty_sec = UserSecrets(
+        user_id=SENTINEL_USER_ID,
+        telegram_bot_token=None,
+        telegram_chat_id=None,
+        telegram_webhook_secret=None,
+    )
+    with patch(
+        "app.services.user_secrets.get_secrets",
+        new=AsyncMock(return_value=empty_sec),
+    ):
+        result = await notify_telegram(text="hi")
     assert isinstance(result, dict)
     assert result.get("ok") is False
     assert "error" in result
@@ -145,6 +160,9 @@ async def test_notify_telegram_success_with_mocked_httpx(
     callable when it does `import httpx` at call time.
     """
     import httpx
+    from unittest.mock import AsyncMock, patch
+    from app.services.user_secrets import UserSecrets
+    from app.auth import SENTINEL_USER_ID
 
     notify_telegram = get_tool_fn(mcp_server, "notify_telegram")
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "fake-token")
@@ -162,5 +180,108 @@ async def test_notify_telegram_success_with_mocked_httpx(
 
     monkeypatch.setattr(httpx, "post", _fake_post)
 
-    result = notify_telegram(text="hello")
+    empty_sec = UserSecrets(
+        user_id=SENTINEL_USER_ID,
+        telegram_bot_token=None,
+        telegram_chat_id=None,
+        telegram_webhook_secret=None,
+    )
+    with patch(
+        "app.services.user_secrets.get_secrets",
+        new=AsyncMock(return_value=empty_sec),
+    ):
+        result = await notify_telegram(text="hello")
     assert result == {"ok": True, "message_id": 42}
+
+
+@pytest.mark.asyncio
+async def test_notify_telegram_reads_from_user_secrets(
+    client, db_conn, mcp_server, monkeypatch
+):
+    """With user_secrets creds set, the tool uses those instead of env vars."""
+    import httpx
+    from unittest.mock import AsyncMock, patch
+    from app.services.user_secrets import UserSecrets
+    from app.auth import SENTINEL_USER_ID
+
+    notify_telegram = get_tool_fn(mcp_server, "notify_telegram")
+    # Env has different (wrong) creds to confirm user_secrets wins.
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "env-token")
+    monkeypatch.setenv("TELEGRAM_CHAT_ID", "99999")
+
+    captured = {}
+
+    class _FakeResponse:
+        def json(self):
+            return {"ok": True, "result": {"message_id": 7}}
+
+    def _fake_post(url, json=None, timeout=None):  # noqa: A002
+        captured["url"] = url
+        captured["body"] = json
+        return _FakeResponse()
+
+    monkeypatch.setattr(httpx, "post", _fake_post)
+
+    secret_sec = UserSecrets(
+        user_id=SENTINEL_USER_ID,
+        telegram_bot_token="user-secret-token",
+        telegram_chat_id="12345",
+        telegram_webhook_secret=None,
+    )
+    with patch(
+        "app.services.user_secrets.get_secrets",
+        new=AsyncMock(return_value=secret_sec),
+    ):
+        result = await notify_telegram(text="hello from secrets")
+
+    assert result == {"ok": True, "message_id": 7}
+    # Token from user_secrets, not env.
+    assert "user-secret-token" in captured["url"]
+    assert "env-token" not in captured["url"]
+    assert captured["body"]["chat_id"] == 12345
+    assert captured["body"]["text"] == "hello from secrets"
+
+
+@pytest.mark.asyncio
+async def test_notify_telegram_falls_back_to_env_when_no_user_secrets(
+    client, db_conn, mcp_server, monkeypatch
+):
+    """When user_secrets has no creds, the tool falls back to env vars."""
+    import httpx
+    from unittest.mock import AsyncMock, patch
+    from app.services.user_secrets import UserSecrets
+    from app.auth import SENTINEL_USER_ID
+
+    notify_telegram = get_tool_fn(mcp_server, "notify_telegram")
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "env-fallback-token")
+    monkeypatch.setenv("TELEGRAM_CHAT_ID", "54321")
+
+    captured = {}
+
+    class _FakeResponse:
+        def json(self):
+            return {"ok": True, "result": {"message_id": 99}}
+
+    def _fake_post(url, json=None, timeout=None):  # noqa: A002
+        captured["url"] = url
+        captured["body"] = json
+        return _FakeResponse()
+
+    monkeypatch.setattr(httpx, "post", _fake_post)
+
+    empty_sec = UserSecrets(
+        user_id=SENTINEL_USER_ID,
+        telegram_bot_token=None,
+        telegram_chat_id=None,
+        telegram_webhook_secret=None,
+    )
+    with patch(
+        "app.services.user_secrets.get_secrets",
+        new=AsyncMock(return_value=empty_sec),
+    ):
+        result = await notify_telegram(text="env fallback message")
+
+    assert result == {"ok": True, "message_id": 99}
+    assert "env-fallback-token" in captured["url"]
+    assert captured["body"]["chat_id"] == 54321
+    assert captured["body"]["text"] == "env fallback message"
