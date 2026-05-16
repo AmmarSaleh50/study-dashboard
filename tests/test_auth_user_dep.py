@@ -35,3 +35,20 @@ async def test_require_user_no_cookie_raises_401(client):
     with pytest.raises(HTTPException) as exc:
         await require_user(study_session=None)
     assert exc.value.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_sentinel_user_uses_env_overrides(monkeypatch):
+    """OPERATOR_USER_ID + OPERATOR_EMAIL env vars override the sentinel defaults."""
+    custom_uuid = "11111111-1111-1111-1111-111111111111"
+    monkeypatch.setenv("OPERATOR_USER_ID", custom_uuid)
+    monkeypatch.setenv("OPERATOR_EMAIL", "admin@example.test")
+    monkeypatch.setenv("OPERATOR_DISPLAY_NAME", "Custom Admin")
+    from app.config import get_settings
+    from app.auth import _sentinel_user
+    get_settings.cache_clear()
+    _sentinel_user.cache_clear()
+    u = _sentinel_user()
+    assert str(u.id) == custom_uuid
+    assert u.email == "admin@example.test"
+    assert u.display_name == "Custom Admin"
