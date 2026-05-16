@@ -4,6 +4,34 @@ All notable changes to OpenStudy will be documented here.
 Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 versions follow [SemVer](https://semver.org/spec/v2.0.0.html).
 
+## v0.7.0-pre.7 (unreleased) — Multi-tenant Phase 6
+
+### Per-user secrets
+- New `user_secrets` table (1:1 with users): `telegram_bot_token_enc bytea`, `telegram_chat_id text`, `telegram_webhook_secret_enc bytea`. Future columns reserved for Moodle, Stripe.
+- New `app/services/user_secrets.py` — encrypts on write, decrypts on read using `app/services/secrets.py` Fernet helpers.
+- `notify_telegram` MCP tool reads per-user creds; falls back to env vars for operator legacy.
+- Telegram webhook (`/internal/telegram`) routes incoming messages by chat_id → user_id lookup, sets `app.user_id` GUC for the request, dispatches commands in the caller's context.
+
+### Settings UI
+- New Telegram credentials card on the Settings page.
+- 3 new backend endpoints: `GET /api/settings/secrets` (returns masked status booleans + chat_id), `PATCH /api/settings/secrets` (per-field update + empty-string clears), `POST /api/settings/telegram/test` (sends a test message via the user's bot).
+- i18n strings (EN + DE) added under `settings.telegram.*`.
+
+### Tests
+- `tests/services/test_user_secrets.py` (6 tests) covers round-trip + partial update + clear + chat_id lookup.
+- `tests/routers/test_secrets_routes.py` (6 tests) covers the new endpoints incl. no-plaintext-leak.
+- `tests/routers/test_internal_telegram.py` (3 tests) covers webhook routing by chat_id + operator-legacy + 403 for unknown chat.
+- New tests in `tests/mcp/test_files.py` cover notify_telegram per-user creds + env fallback.
+- Suite total: 317 (was 300 at Phase 5).
+
+### Behaviour
+- After upgrade, the operator's existing Telegram env vars continue to work via fallback.
+- To migrate: operator opens Settings → Telegram, pastes bot token + chat ID + webhook secret, saves. Subsequent notify_telegram calls + webhook deliveries use the per-user creds.
+
+## End of Multi-tenant Migration (Phases 0-6)
+
+OpenStudy is now multi-tenant-capable. Phase 7 (billing) and operational concerns (Moodle scraper multi-tenancy, etc.) follow when needed.
+
 ## v0.7.0-pre.6 (unreleased) — Multi-tenant Phase 5
 
 ### MCP user binding
