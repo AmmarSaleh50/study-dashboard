@@ -12,7 +12,6 @@ approves Claude.ai once, done.
 from __future__ import annotations
 
 import html
-import json
 from typing import Any, Optional
 from urllib.parse import quote, urlencode
 
