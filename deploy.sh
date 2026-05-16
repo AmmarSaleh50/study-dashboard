@@ -155,6 +155,17 @@ if ! $COMPOSE run --rm --no-deps openstudy uv run --no-sync python scripts/run_m
     exit 1
 fi
 
+# Phase 1: one-shot FS migration (idempotent — guarded by marker file).
+if [[ -x ./scripts/migrate_study_root.sh ]]; then
+    log "running phase 1 FS migration (idempotent)..."
+    OPERATOR_USER_ID="${OPERATOR_USER_ID:-00000000-0000-0000-0000-000000000001}" \
+    STUDY_ROOT="${STUDY_ROOT:-/opt/courses}" \
+        ./scripts/migrate_study_root.sh || {
+        err "FS migration failed — investigate before continuing"
+        exit 1
+    }
+fi
+
 # ── roll forward ─────────────────────────────────────────────────────────────
 
 log "starting new openstudy + recreating frontend..."
