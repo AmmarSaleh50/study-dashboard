@@ -32,4 +32,8 @@ jobs:
             set -euo pipefail
             cd /opt/openstudy
             REF="${{ github.event.inputs.ref || github.ref_name }}"
-            OPENSTUDY_DEPLOY_REF="$REF" ./deploy.sh --pull
+            echo "Deploying ref: $REF"
+            git fetch --all --tags
+            git reset --hard "$REF"
+            echo "Now at: $(git log -1 --oneline)"
+            ./deploy.sh
