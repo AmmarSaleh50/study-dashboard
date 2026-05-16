@@ -4,6 +4,52 @@ All notable changes to OpenStudy will be documented here.
 Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 versions follow [SemVer](https://semver.org/spec/v2.0.0.html).
 
+## v0.7.0 — Multi-tenant ready
+
+The multi-tenant migration (Phases 0-7) is complete. OpenStudy can now be
+self-hosted as single-user OR run as a multi-user platform from the same
+codebase. All credentials are per-user; the operator's bot, password, and
+chat ID never serve as fallbacks for other users.
+
+### Highlights
+
+- **Schema**: every owned table has a `user_id` FK with composite PKs/FKs
+  enforcing per-user data integrity. Cross-user FK violations are
+  structurally impossible.
+- **RLS policies**: shipped on every owned table. Inert under the current
+  BYPASSRLS connection role; flip to a non-bypass role to activate
+  defense-in-depth (see `docs/RLS.md`).
+- **Services**: every public service function takes `user_id` and filters
+  by it. Storage paths resolve under `STUDY_ROOT/<user_id>/...`.
+- **Auth**: home-grown signup + email verification + password reset.
+  Login is `email + password` only — `APP_PASSWORD_HASH` is bootstrap-only.
+- **MCP**: bearer tokens bind to user_id; tools operate on the bearer's
+  data only.
+- **Per-user secrets**: Telegram credentials live in `user_secrets`
+  (Fernet-encrypted), configured via Settings UI. No env-var fallbacks
+  for `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, `TELEGRAM_WEBHOOK_SECRET`.
+- **Tests**: 318 passing (was 213 pre-migration).
+
+### Migration notes
+
+- After upgrade, run `./deploy.sh` once — it applies all 6 phase migrations
+  in order, runs `scripts/migrate_study_root.sh` (FS layout), and
+  `scripts/seed_operator_password.py` (operator password).
+- Existing operators: log in with `OPERATOR_EMAIL` (default `operator@local`)
+  + the password whose hash was in `APP_PASSWORD_HASH`. Reconfigure your
+  Telegram bot via Settings → Telegram (the env vars no longer work).
+- Self-hosters running solo: nothing changes day-to-day. You ARE the
+  operator user. Multi-user signups are gated by `SIGNUPS_ENABLED=false`
+  by default; flip it on if you want to invite others.
+
+### Deferred
+
+- Stripe billing — separate batch after this lands.
+- n8n Moodle scraper multi-tenancy — operator-only today; per-user Moodle
+  is a follow-up when first hosted user requests it.
+- Connection role flip to non-BYPASSRLS — operational; documented in
+  `docs/RLS.md`; flip when ready.
+
 ## v0.7.0-pre.7 (unreleased) — Multi-tenant Phase 6
 
 ### Per-user secrets

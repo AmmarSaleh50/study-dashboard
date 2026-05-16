@@ -114,6 +114,8 @@ The dashboard is where I see things. Claude is how I edit them. Same database be
 
 The MCP server ships with **44 tools — anything you can do in the UI, Claude can do too**. Create a study topic, mark something studied, upload a file, render a PDF as images, whatever.
 
+- **Multi-tenant SaaS-capable:** per-user data isolation enforced at both the service layer (WHERE filters) and the schema layer (composite FKs + RLS policies). Self-host as single-user or invite many users — same codebase.
+
 Plug it into Claude.ai as a custom connector (full OAuth 2.1) and those tools are live in **Claude Code on your laptop, claude.ai in your browser, and the Claude iOS app on your phone**. Open Claude anywhere and it has the same view of your coursework that you do.
 
 ## You'll need

@@ -85,8 +85,9 @@ chmod 600 .env .env.docker
 ```
 
 The other variables in `.env` are optional and document themselves —
-Telegram bot credentials, the internal API secret used by webhooks, the
-public URL the app advertises in OAuth flows.
+the internal API secret used by webhooks, the public URL the app
+advertises in OAuth flows. Telegram credentials are configured per-user
+via **Settings → Telegram** after first login (no env vars needed).
 
 ---
 
@@ -119,6 +120,23 @@ curl http://127.0.0.1:8000/api/health
 
 You should also see the running containers (`openstudy`, `openstudy-postgres`,
 `openstudy-frontend`) when you run `./deploy.sh --status`.
+
+### First-time operator login
+
+After running `./deploy.sh`:
+
+1. Set `APP_PASSWORD_HASH` in `.env.docker` to your argon2id-hashed password
+   (use `uv run python -m app.tools.hashpw 'your-password'` to generate).
+2. Set `OPERATOR_EMAIL` to your email (or leave the default `operator@local`).
+3. Run `./deploy.sh` — it invokes `scripts/seed_operator_password.py` which
+   sets `users.password_hash` for the operator user from your env var.
+4. Log in at `https://your-domain/login` with `OPERATOR_EMAIL` + your password.
+5. Configure your Telegram bot in **Settings → Telegram** (per-user; no env
+   vars needed).
+
+`APP_PASSWORD_HASH` is bootstrap-only — the seed script reads it once at
+deploy time. Subsequent logins authenticate against `users.password_hash`
+in the database.
 
 ### Restoring data into a fresh box
 
@@ -305,11 +323,13 @@ and is readable by the container. `docker exec openstudy ls /opt/courses`
 should show your course tree.
 
 **Login returns 401 with the right password.**
-Re-hash the password and update `APP_PASSWORD_HASH` in `.env`. Common
-gotcha: the hash starts with `$argon2id$…` — those `$` characters are
-literal, not env interpolation. The compose `env_file: format: raw`
-directive prevents mangling, but if you've manually exported the variable
-in a shell, the `$` chars need to be single-quoted.
+Re-hash the password, update `APP_PASSWORD_HASH` in `.env.docker`, then
+run `./deploy.sh` so `scripts/seed_operator_password.py` writes the new
+hash into `users.password_hash`. Common gotcha: the hash starts with
+`$argon2id$…` — those `$` characters are literal, not env interpolation.
+The compose `env_file: format: raw` directive prevents mangling, but if
+you've manually exported the variable in a shell, the `$` chars need to
+be single-quoted.
 
 **MCP returns 401 from a Claude client.**
 The OAuth token cached by the client expired or was revoked. Reconnect:

@@ -1,6 +1,6 @@
 [project]
 name = "openstudy-api"
-version = "0.6.0"
+version = "0.7.0"
 description = "FastAPI backend for the OpenStudy app"
 readme = "README.md"
 requires-python = ">=3.12"
