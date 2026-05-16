@@ -4,6 +4,28 @@ All notable changes to OpenStudy will be documented here.
 Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 versions follow [SemVer](https://semver.org/spec/v2.0.0.html).
 
+## v0.7.0-pre.5 (unreleased) — Multi-tenant Phase 4
+
+### Schema
+- Per-user Row Level Security policies on every owned table. USING + WITH CHECK reference `current_setting('app.user_id', true)::uuid`.
+- Permissive policies on global tables (`oauth_clients`, `auth_attempts`).
+- `users` table policy is self-only by id.
+
+### App
+- `app/auth.py` adds a contextvar `_current_user_id`. `optional_user`/`require_user` stamp it on every authenticated request.
+- `app/db.py` issues `SELECT set_config('app.user_id', ?, true)` on every connection acquire when the contextvar is set. Inert when unset (e.g., for unauthed health checks).
+- Middleware in `app/main.py` clears the contextvar at the start of each HTTP request (defense against contextvar leakage in shared async tasks).
+
+### Behaviour (unchanged today)
+- The app currently connects as a BYPASSRLS role; policies are inert.
+- App-side `WHERE user_id = $1` filters (Phase 2) remain the active enforcement.
+- Flipping the prod connection role to a non-BYPASSRLS role activates the policies. See `docs/RLS.md`.
+
+### Tests
+- `tests/test_phase4_guc.py` — proves the contextvar reaches the GUC.
+- `tests/test_phase4_rls.py` — uses `SET LOCAL ROLE` + a non-BYPASSRLS test role to prove policies enforce.
+- Suite total: 289 (was 285 at Phase 3).
+
 ## v0.7.0-pre.4 (unreleased) — Multi-tenant Phase 3
 
 ### Backend
