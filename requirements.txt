@@ -34,7 +34,9 @@ colorama==0.4.6 ; sys_platform == 'win32'
     #   click
     #   uvicorn
 cryptography==46.0.7
-    # via pyjwt
+    # via
+    #   openstudy-api
+    #   pyjwt
 fastapi==0.136.0
     # via openstudy-api
 h11==0.16.0
@@ -97,7 +99,7 @@ python-dotenv==1.2.2
     # via
     #   pydantic-settings
     #   uvicorn
-python-multipart==0.0.26
+python-multipart==0.0.28
     # via
     #   mcp
     #   openstudy-api
