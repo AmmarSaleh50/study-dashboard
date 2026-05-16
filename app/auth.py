@@ -74,6 +74,36 @@ def verify_password(plain: str) -> bool:
         return False
 
 
+async def verify_password_for_user(email: str, plain: str) -> Optional[User]:
+    """Look up user by email; argon2-verify; return User or None.
+
+    Returns None for: unknown email, NULL password_hash, mismatch.
+    """
+    from . import db as db_module
+    email = email.strip().lower()
+    try:
+        row = await db_module.fetchrow(
+            "SELECT id, email, display_name, password_hash FROM users "
+            "WHERE email = %s AND deleted_at IS NULL",
+            email,
+        )
+    except Exception:
+        return None
+    if not row or not row.get("password_hash"):
+        return None
+    try:
+        _ph.verify(row["password_hash"], plain)
+    except VerifyMismatchError:
+        return None
+    except Exception:
+        return None
+    return User(
+        id=row["id"] if isinstance(row["id"], UUID) else UUID(row["id"]),
+        email=row["email"],
+        display_name=row["display_name"],
+    )
+
+
 def issue_session(response: Response, user_id: UUID) -> None:
     s = get_settings()
     payload = json.dumps({"u": str(user_id), "iat": int(time.time())}).encode("utf-8")

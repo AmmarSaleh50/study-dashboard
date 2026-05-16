@@ -363,6 +363,7 @@ class DashboardSummary(BaseModel):
 
 # ---------- Auth ----------
 class LoginRequest(BaseModel):
+    email: Optional[str] = None  # If omitted, falls back to operator-legacy
     password: str
     totp_code: Optional[str] = None
 

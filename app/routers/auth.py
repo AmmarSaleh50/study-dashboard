@@ -1,17 +1,21 @@
 import pyotp
+from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 
 from ..services import totp as totp_svc
 from ..services import auth_signup as signup_svc
 from ..auth import (
     SENTINEL_USER_ID,
+    User,
     clear_session,
     is_totp_required,
     issue_session,
     optional_auth,
     require_auth,
     verify_password,
+    verify_password_for_user,
     verify_totp,
+    _sentinel_user,
 )
 from ..ratelimit import check_login_rate, record_login_attempt, check_auth_rate
 from ..schemas import LoginRequest, SessionInfo, TotpSetupResponse, TotpVerifyRequest, SignupRequest, ForgotRequest, ResetRequest
@@ -19,27 +23,46 @@ from ..schemas import LoginRequest, SessionInfo, TotpSetupResponse, TotpVerifyRe
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
+def _verify_totp_code(code: str, secret: str) -> bool:
+    code = code.strip().replace(" ", "")
+    if not code.isdigit() or len(code) != 6:
+        return False
+    return pyotp.TOTP(secret).verify(code, valid_window=1)
+
+
 @router.post("/login", response_model=SessionInfo)
 async def login(body: LoginRequest, request: Request, response: Response) -> SessionInfo:
     await check_login_rate(request)
-    ok = verify_password(body.password)
-    # If password is correct AND TOTP is enabled, also require a valid code.
-    # Frontend reads the 401 detail string to know whether to show the TOTP field.
-    if ok and await is_totp_required():
+
+    user: Optional[User] = None
+
+    if body.email:
+        # Email+password path: lookup + argon2 verify
+        user = await verify_password_for_user(body.email, body.password)
+    else:
+        # Operator-legacy fallback: verify against APP_PASSWORD_HASH
+        legacy_ok = verify_password(body.password)
+        if legacy_ok:
+            user = _sentinel_user()
+
+    if user is None:
+        await record_login_attempt(request, False)
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "invalid credentials")
+
+    # TOTP check: per-user (totp service reads users.totp_*)
+    enabled, secret = await totp_svc.get_state(user.id)
+    if enabled and secret:
         if not body.totp_code:
-            # Don't record as a failed attempt — the password was correct,
-            # the user is just at the start of the two-factor flow. Marking
-            # this as a failure would eat the rate-limit budget on every
-            # legitimate login.
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="totp_required")
-        if not await verify_totp(body.totp_code):
+            # Don't record as failed attempt — password was correct, user is
+            # at the start of the two-factor flow.
+            raise HTTPException(status.HTTP_401_UNAUTHORIZED, "totp_required")
+        if not _verify_totp_code(body.totp_code, secret):
             await record_login_attempt(request, False)
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid totp code")
-    await record_login_attempt(request, ok)
-    if not ok:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid password")
-    issue_session(response, SENTINEL_USER_ID)
-    return SessionInfo(authed=True, totp_enabled=await is_totp_required())
+            raise HTTPException(status.HTTP_401_UNAUTHORIZED, "invalid totp code")
+
+    await record_login_attempt(request, True)
+    issue_session(response, user.id)
+    return SessionInfo(authed=True, totp_enabled=bool(enabled))
 
 
 @router.post("/logout", response_model=SessionInfo)

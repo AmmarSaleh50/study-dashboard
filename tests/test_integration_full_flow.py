@@ -146,7 +146,7 @@ async def test_oauth_full_lifecycle(https_client, db_conn):
 
 @pytest.mark.asyncio
 async def test_login_rate_limit_then_success(https_client, db_conn):
-    # 5 failed attempts: each 401 with "invalid password".
+    # 5 failed attempts: each 401 with "invalid credentials".
     for _ in range(5):
         bad = await https_client.post(
             "/api/auth/login", json={"password": "wrong"}
@@ -231,4 +231,24 @@ async def test_totp_enroll_and_login(https_client, db_conn):
         },
     )
     assert good.status_code == 200, good.text
+    assert https_client.cookies.get("study_session")
+
+
+@pytest.mark.asyncio
+async def test_login_with_email_and_password(https_client, db_conn):
+    """The new email+password path works against an operator-seeded user."""
+    # Operator user is seeded by Phase 1 migration with NULL password_hash.
+    # Set a password hash directly via SQL (mimicking the seed script).
+    pw_hash = PasswordHasher().hash(_TEST_PASSWORD)
+    async with db_conn.connection() as conn, conn.cursor() as cur:
+        await cur.execute(
+            "UPDATE users SET password_hash = %s WHERE email = 'operator@local'",
+            (pw_hash,),
+        )
+    # Now login with email + password
+    resp = await https_client.post("/api/auth/login", json={
+        "email": "operator@local",
+        "password": _TEST_PASSWORD,
+    })
+    assert resp.status_code == 200, resp.text
     assert https_client.cookies.get("study_session")

@@ -62,4 +62,4 @@ async def test_login_flow_uses_async_db_paths(client, db_conn, monkeypatch):
     # No app_password_hash configured → verify_password returns False → 401.
     resp = await client.post("/api/auth/login", json={"password": "irrelevant"})
     assert resp.status_code == 401, resp.text
-    assert resp.json()["detail"] == "invalid password"
+    assert resp.json()["detail"] == "invalid credentials"
