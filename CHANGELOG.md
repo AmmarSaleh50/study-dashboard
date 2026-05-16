@@ -4,6 +4,27 @@ All notable changes to OpenStudy will be documented here.
 Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 versions follow [SemVer](https://semver.org/spec/v2.0.0.html).
 
+## v0.7.0-pre.3 (unreleased) — Multi-tenant Phase 2
+
+### Services
+- Every service function now takes `user_id: UUID` as its first parameter.
+- All SELECTs filter via `WHERE user_id = $1`. INSERTs include user_id. UPDATEs/DELETEs constrain by user_id (defense in depth).
+- Intent layer forwards user_id to services (was accept-and-ignore in Phase 0).
+- oauth service threads user_id from `/oauth/consent` through token issuance.
+- Storage layer (`app/services/storage.py`) takes user_id and resolves paths under `STUDY_ROOT/<user_id>/...`. Path traversal is blocked at the user_root boundary.
+- file_index search filters by user_id; index_all stays operator-scoped and walks per-user directories.
+
+### Schema
+- Dropped sentinel `DEFAULT` on every owned table's user_id column. INSERTs must now supply user_id explicitly; absence raises a NOT NULL violation rather than silently using the operator.
+
+### Tests
+- New `tests/test_phase2_isolation.py` (4 tests) proves the service filters genuinely isolate data between two users.
+- Coverage tests in storage + file_index for cross-user traversal blocking and operator-scoped reindex.
+- Suite total: 262 (was 255 at Phase 1).
+
+### Behaviour
+- App still operates single-tenant at the entry points — routers + MCP tools pass the sentinel UUID. Phase 3 (signup endpoints) makes user identity real via the session cookie.
+
 ## v0.7.0-pre.2 (unreleased) — Multi-tenant Phase 1
 
 ### Schema
