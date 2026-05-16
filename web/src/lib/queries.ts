@@ -620,3 +620,42 @@ export function useMoveEntry() {
     },
   });
 }
+
+// ── Auth: signup / forgot-password / reset-password / verify-email ──────────
+export type SignupResult = { ok: boolean; message: string };
+
+export function useSignup() {
+  return useMutation<SignupResult, Error, { email: string; password: string }>({
+    mutationFn: ({ email, password }) =>
+      api.post<SignupResult>("/api/auth/signup", { email, password }),
+  });
+}
+
+export type ForgotPasswordResult = { ok: boolean; message: string };
+
+export function useForgotPassword() {
+  return useMutation<ForgotPasswordResult, Error, { email: string }>({
+    mutationFn: ({ email }) =>
+      api.post<ForgotPasswordResult>("/api/auth/forgot-password", { email }),
+  });
+}
+
+export type ResetPasswordResult = { ok: boolean; message: string };
+
+export function useResetPassword() {
+  return useMutation<ResetPasswordResult, Error, { token: string; new_password: string }>({
+    mutationFn: ({ token, new_password }) =>
+      api.post<ResetPasswordResult>("/api/auth/reset-password", { token, new_password }),
+  });
+}
+
+export type VerifyEmailResult = { ok: boolean; message: string };
+
+export function useVerifyEmail(token: string | null) {
+  return useQuery<VerifyEmailResult, Error>({
+    queryKey: ["verify-email", token],
+    queryFn: () => api.get<VerifyEmailResult>("/api/auth/verify-email", { token: token! }),
+    enabled: Boolean(token),
+    retry: false,
+  });
+}

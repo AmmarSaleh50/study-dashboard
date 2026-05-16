@@ -4,6 +4,10 @@ import { QueryProvider } from "@/components/layout/query-provider";
 import { Toaster } from "@/components/ui/toaster";
 import Landing from "@/routes/landing";
 import Login from "@/routes/login";
+import Signup from "@/routes/signup";
+import ForgotPassword from "@/routes/forgot-password";
+import ResetPassword from "@/routes/reset-password";
+import VerifyEmail from "@/routes/verify-email";
 
 // Eager: Landing (the public marketing page Google sees) + Login (small +
 // always on the critical path). Everything under /app is lazy-loaded so
@@ -33,6 +37,10 @@ const router = createBrowserRouter([
     element: SHOW_LANDING ? <Landing /> : <Navigate to="/app" replace />,
   },
   { path: "/login", element: <Login /> },
+  { path: "/signup", element: <Signup /> },
+  { path: "/forgot-password", element: <ForgotPassword /> },
+  { path: "/reset-password", element: <ResetPassword /> },
+  { path: "/verify-email", element: <VerifyEmail /> },
   {
     path: "/app",
     element: <AppShell />,
