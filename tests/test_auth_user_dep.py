@@ -1,7 +1,7 @@
 """Tests for the User-returning auth dependencies (require_user / optional_user).
 
-Phase 0: returns the sentinel User regardless of cookie identity (single-tenant).
-Phase 1: will look up the user from the session cookie's signed payload.
+Phase 3: cookie payload carries user_id; require_user hits the users table.
+Legacy `b"authed"` cookies fall back to the sentinel user (migration grace).
 """
 import pytest
 from uuid import UUID
@@ -17,7 +17,8 @@ async def test_optional_user_no_cookie_returns_none(client):
 
 @pytest.mark.asyncio
 async def test_require_user_returns_sentinel_when_authed(client, monkeypatch):
-    """require_user with a valid cookie returns the sentinel User."""
+    """Legacy cookie path: a cookie signed `b"authed"` (pre-Phase-3) still
+    resolves to the sentinel user via the migration-grace fallback."""
     from app.auth import require_user, _signer, SENTINEL_USER_ID
 
     token = _signer().sign(b"authed").decode()
@@ -55,3 +56,35 @@ async def test_sentinel_user_uses_env_overrides(monkeypatch):
     # Restore caches so later tests see the default sentinel UUID.
     get_settings.cache_clear()
     _sentinel_user.cache_clear()
+
+
+@pytest.mark.asyncio
+async def test_require_user_returns_db_user_from_new_cookie_payload(client, db_conn):
+    """The new cookie payload carries user_id; require_user looks up users table."""
+    from app.auth import require_user, _signer, SENTINEL_USER_ID
+    import json, time
+
+    # The sentinel user already exists in the DB (seeded by Phase 1 migration).
+    payload = json.dumps({"u": str(SENTINEL_USER_ID), "iat": int(time.time())}).encode()
+    token = _signer().sign(payload).decode()
+
+    user = await require_user(study_session=token)
+    assert user.id == SENTINEL_USER_ID
+    assert user.email == "operator@local"
+
+
+@pytest.mark.asyncio
+async def test_require_user_unknown_user_id_in_cookie_raises_401(client, db_conn):
+    """A signed cookie with a user_id that doesn't exist in users → 401."""
+    from fastapi import HTTPException
+    from app.auth import require_user, _signer
+    import json, time
+    from uuid import uuid4
+
+    unknown = str(uuid4())
+    payload = json.dumps({"u": unknown, "iat": int(time.time())}).encode()
+    token = _signer().sign(payload).decode()
+
+    with pytest.raises(HTTPException) as exc:
+        await require_user(study_session=token)
+    assert exc.value.status_code == 401

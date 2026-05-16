@@ -38,7 +38,7 @@ async def login(body: LoginRequest, request: Request, response: Response) -> Ses
     await record_login_attempt(request, ok)
     if not ok:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid password")
-    issue_session(response)
+    issue_session(response, SENTINEL_USER_ID)
     return SessionInfo(authed=True, totp_enabled=await is_totp_required())
 
 

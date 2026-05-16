@@ -1,3 +1,5 @@
+import json
+import time
 from dataclasses import dataclass
 from datetime import datetime, timezone, timedelta
 from functools import lru_cache
@@ -72,9 +74,10 @@ def verify_password(plain: str) -> bool:
         return False
 
 
-def issue_session(response: Response) -> None:
+def issue_session(response: Response, user_id: UUID) -> None:
     s = get_settings()
-    token = _signer().sign(b"authed").decode()
+    payload = json.dumps({"u": str(user_id), "iat": int(time.time())}).encode("utf-8")
+    token = _signer().sign(payload).decode()
     response.set_cookie(
         key=COOKIE_NAME,
         value=token,
@@ -119,15 +122,50 @@ async def require_auth(
 async def optional_user(
     study_session: Optional[str] = Cookie(default=None, alias=COOKIE_NAME),
 ) -> Optional[User]:
-    """Phase 0: returns the sentinel User if the cookie verifies, else None.
-
-    Phase 1: parses user_id out of the signed cookie payload and hydrates
-    from users table.
+    """Phase 3: parses user_id out of the signed cookie payload and hydrates
+    from the users table. Legacy `b"authed"` cookies fall back to the
+    sentinel user (migration grace; Phase 5/6 can drop this).
     """
+    if not study_session:
+        return None
     s = get_settings()
-    if _verify_cookie(study_session, s.session_ttl_days * 24 * 60 * 60):
+    max_age = s.session_ttl_days * 24 * 60 * 60
+    try:
+        raw = _signer().unsign(study_session.encode(), max_age=max_age)
+    except (BadSignature, SignatureExpired):
+        return None
+
+    # Legacy: cookie signed b"authed" → return sentinel.
+    if raw == b"authed":
         return _sentinel_user()
-    return None
+
+    # New: cookie signed JSON {u, iat}.
+    try:
+        data = json.loads(raw.decode("utf-8"))
+        user_id = UUID(data["u"])
+    except (json.JSONDecodeError, KeyError, ValueError):
+        return None
+
+    return await _load_user_from_db(user_id)
+
+
+async def _load_user_from_db(user_id: UUID) -> Optional[User]:
+    """Look up a user by id; return User dataclass or None if missing."""
+    from . import db as db_module
+    try:
+        row = await db_module.fetchrow(
+            "SELECT id, email, display_name FROM users WHERE id = %s AND deleted_at IS NULL",
+            str(user_id),
+        )
+    except Exception:
+        return None
+    if not row:
+        return None
+    return User(
+        id=row["id"] if isinstance(row["id"], UUID) else UUID(row["id"]),
+        email=row["email"],
+        display_name=row["display_name"],
+    )
 
 
 async def require_user(
