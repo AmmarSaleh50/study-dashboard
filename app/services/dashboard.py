@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+from uuid import UUID
 
 from ..schemas import DashboardSummary
 from . import (
@@ -13,15 +14,15 @@ from . import (
 )
 
 
-async def get_dashboard_summary() -> DashboardSummary:
+async def get_dashboard_summary(user_id: UUID) -> DashboardSummary:
     now = datetime.now(timezone.utc)
-    cs = await courses_svc.list_courses()
-    ss = await slots_svc.list_slots()
+    cs = await courses_svc.list_courses(user_id)
+    ss = await slots_svc.list_slots(user_id)
     es = await exams_svc.list_exams()
     ds = await deliverables_svc.list_deliverables()
     ts = await tasks_svc.list_tasks()
     tp = await topics_svc.list_study_topics()
-    ls = await lectures_svc.list_lectures()
+    ls = await lectures_svc.list_lectures(user_id)
     fb = fb_svc.compute_fall_behind(cs, tp, ss, now)
     return DashboardSummary(
         now=now,

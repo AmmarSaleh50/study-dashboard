@@ -3,14 +3,16 @@ from datetime import date
 
 import pytest
 
+from app.auth import SENTINEL_USER_ID
+
 
 async def _seed_course(db_conn, code: str = "TEST") -> None:
     """Insert a courses row so study_topics FK constraint is satisfied."""
     async with db_conn.connection() as conn, conn.cursor() as cur:
         await cur.execute(
-            "INSERT INTO courses (code, full_name) VALUES (%s, %s) "
+            "INSERT INTO courses (user_id, code, full_name) VALUES (%s, %s, %s) "
             "ON CONFLICT DO NOTHING",
-            (code, f"Test course {code}"),
+            (SENTINEL_USER_ID, code, f"Test course {code}"),
         )
 
 
@@ -178,7 +180,7 @@ async def test_add_lecture_topics_with_existing_lecture_id(client, db_conn):
     from app.services import lectures as lectures_svc
     from app.services import study_topics as svc
     await _seed_course(db_conn, "LEC")
-    lec = await lectures_svc.create_lecture(LectureCreate(
+    lec = await lectures_svc.create_lecture(SENTINEL_USER_ID, LectureCreate(
         course_code="LEC", number=1, held_on=date(2026, 4, 10), kind="lecture",
         title="Wk1",
     ))
@@ -241,7 +243,7 @@ async def test_add_lecture_topics_auto_creates_lecture(client, db_conn):
     new_lecture_id = next(iter(lecture_ids))
     assert new_lecture_id is not None
     # Verify the lecture row actually exists
-    fetched = await lectures_svc.get_lecture(new_lecture_id)
+    fetched = await lectures_svc.get_lecture(SENTINEL_USER_ID, new_lecture_id)
     assert fetched is not None
     assert fetched.course_code == "AUT"
     assert fetched.number == 2
