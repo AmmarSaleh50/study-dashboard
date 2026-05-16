@@ -184,13 +184,13 @@ if [[ -x ./scripts/migrate_study_root.sh ]]; then
     }
 fi
 
-# Phase 3: seed operator password if APP_PASSWORD_HASH is set + users.password_hash is NULL.
-if [[ -x ./scripts/seed_operator_password.py ]] && [[ -n "${APP_PASSWORD_HASH:-}" ]]; then
-    log "seeding operator password (idempotent)..."
-    APP_PASSWORD_HASH="${APP_PASSWORD_HASH}" \
-    OPERATOR_USER_ID="${OPERATOR_USER_ID:-00000000-0000-0000-0000-000000000001}" \
-        ./scripts/seed_operator_password.py || {
-        err "operator password seed failed — investigate"
+# Phase 3+: reconcile operator user from .env (email, display_name, password_hash).
+# Run inside a fresh container so the .env env_file is loaded — the host shell
+# doesn't have these vars. The script's own env-checks decide whether to skip.
+if [[ -x ./scripts/seed_operator_password.py ]]; then
+    log "reconciling operator user from .env (idempotent)..."
+    $COMPOSE run --rm --no-deps openstudy uv run --no-sync python scripts/seed_operator_password.py 2>&1 | tee -a "$LOG" || {
+        err "operator seed failed — investigate"
         exit 1
     }
 fi
