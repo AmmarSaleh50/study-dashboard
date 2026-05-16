@@ -1083,8 +1083,8 @@ def register_tools(server: FastMCP) -> None:
         """Send a Telegram message to your configured chat via your bot.
 
         Reads bot token + chat_id from user_secrets (set via Settings UI).
-        Falls back to ``TELEGRAM_BOT_TOKEN`` / ``TELEGRAM_CHAT_ID`` env vars
-        for the operator during rollout.
+        No env fallback — this is multi-tenant; operator credentials must
+        not be borrowed by other users.
 
         Used by background agents that can't reach the Telegram API directly
         from their runtime — they call this server-side tool and the backend
@@ -1099,26 +1099,22 @@ def register_tools(server: FastMCP) -> None:
         Returns ``{"ok": True, "message_id": <int>}`` on success or
         ``{"ok": False, "error": "<reason>"}`` on failure.
         """
-        import os
         import httpx
 
         from .services import user_secrets as user_secrets_svc
 
         user_id = _get_mcp_user_id()
 
-        # Prefer per-user creds from user_secrets.
+        # Per-user creds from user_secrets — no env fallback.
         sec = await user_secrets_svc.get_secrets(user_id)
-        token = sec.telegram_bot_token or ""
-        chat_id = sec.telegram_chat_id or ""
-
-        # Fallback to env (operator legacy).
-        if not token:
-            token = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
-        if not chat_id:
-            chat_id = os.environ.get("TELEGRAM_CHAT_ID", "").strip()
+        token = (sec.telegram_bot_token or "").strip()
+        chat_id = (sec.telegram_chat_id or "").strip()
 
         if not token or not chat_id:
-            return {"ok": False, "error": "TELEGRAM_BOT_TOKEN/TELEGRAM_CHAT_ID not configured"}
+            return {
+                "ok": False,
+                "error": "telegram not configured — set bot token + chat ID in Settings",
+            }
         if not text or not text.strip():
             return {"ok": False, "error": "empty text"}
         payload: dict = {

@@ -1,4 +1,4 @@
-"""MCP tool tests — course files + notify_telegram (3 tools, 9 tests).
+"""MCP tool tests — course files + notify_telegram.
 
 Coverage: list_course_files, read_course_file, notify_telegram.
 
@@ -7,6 +7,9 @@ Coverage: list_course_files, read_course_file, notify_telegram.
 write fixtures to disk directly. `notify_telegram` is async and HTTP-backed,
 so we monkeypatch `httpx.post` for the success path and mock `get_secrets`
 for the user_secrets path.
+
+Note: as of v0.7.0 the tool reads creds exclusively from user_secrets —
+no env fallback (operator credentials must not leak across tenants).
 """
 import pytest
 
@@ -121,17 +124,19 @@ async def test_read_pdf_with_page_range(client, db_conn, mcp_server, study_root)
 
 
 @pytest.mark.asyncio
-async def test_notify_telegram_missing_env_returns_error(
+async def test_notify_telegram_missing_user_secrets_returns_error(
     client, db_conn, mcp_server, monkeypatch
 ):
-    """Without user_secrets or env vars set, the tool returns ok=False with an error."""
+    """Without user_secrets configured, the tool returns ok=False with a
+    'not configured' error — no env fallback."""
     from unittest.mock import AsyncMock, patch
     from app.services.user_secrets import UserSecrets
     from app.auth import SENTINEL_USER_ID
 
     notify_telegram = get_tool_fn(mcp_server, "notify_telegram")
-    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
-    monkeypatch.delenv("TELEGRAM_CHAT_ID", raising=False)
+    # Env vars (even if accidentally set) must NOT be used.
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "env-should-be-ignored")
+    monkeypatch.setenv("TELEGRAM_CHAT_ID", "99999")
 
     empty_sec = UserSecrets(
         user_id=SENTINEL_USER_ID,
@@ -146,66 +151,21 @@ async def test_notify_telegram_missing_env_returns_error(
         result = await notify_telegram(text="hi")
     assert isinstance(result, dict)
     assert result.get("ok") is False
-    assert "error" in result
-
-
-@pytest.mark.asyncio
-async def test_notify_telegram_success_with_mocked_httpx(
-    client, db_conn, mcp_server, monkeypatch
-):
-    """With env set + httpx.post mocked to return ok=True, the tool returns the message_id.
-
-    `httpx` is imported inside the function body, so monkeypatching the module
-    attribute (`httpx.post`) is enough — the function picks up the patched
-    callable when it does `import httpx` at call time.
-    """
-    import httpx
-    from unittest.mock import AsyncMock, patch
-    from app.services.user_secrets import UserSecrets
-    from app.auth import SENTINEL_USER_ID
-
-    notify_telegram = get_tool_fn(mcp_server, "notify_telegram")
-    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "fake-token")
-    monkeypatch.setenv("TELEGRAM_CHAT_ID", "12345")
-
-    class _FakeResponse:
-        def json(self):
-            return {"ok": True, "result": {"message_id": 42}}
-
-    def _fake_post(url, json=None, timeout=None):  # noqa: A002 (shadow `json` like httpx)
-        assert "api.telegram.org" in url
-        assert json["chat_id"] == 12345
-        assert json["text"] == "hello"
-        return _FakeResponse()
-
-    monkeypatch.setattr(httpx, "post", _fake_post)
-
-    empty_sec = UserSecrets(
-        user_id=SENTINEL_USER_ID,
-        telegram_bot_token=None,
-        telegram_chat_id=None,
-        telegram_webhook_secret=None,
-    )
-    with patch(
-        "app.services.user_secrets.get_secrets",
-        new=AsyncMock(return_value=empty_sec),
-    ):
-        result = await notify_telegram(text="hello")
-    assert result == {"ok": True, "message_id": 42}
+    assert "not configured" in result.get("error", "").lower()
 
 
 @pytest.mark.asyncio
 async def test_notify_telegram_reads_from_user_secrets(
     client, db_conn, mcp_server, monkeypatch
 ):
-    """With user_secrets creds set, the tool uses those instead of env vars."""
+    """With user_secrets creds set, the tool uses those (and ignores env)."""
     import httpx
     from unittest.mock import AsyncMock, patch
     from app.services.user_secrets import UserSecrets
     from app.auth import SENTINEL_USER_ID
 
     notify_telegram = get_tool_fn(mcp_server, "notify_telegram")
-    # Env has different (wrong) creds to confirm user_secrets wins.
+    # Env has different (wrong) creds — must be ignored.
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "env-token")
     monkeypatch.setenv("TELEGRAM_CHAT_ID", "99999")
 
@@ -243,45 +203,30 @@ async def test_notify_telegram_reads_from_user_secrets(
 
 
 @pytest.mark.asyncio
-async def test_notify_telegram_falls_back_to_env_when_no_user_secrets(
+async def test_notify_telegram_partial_user_secrets_returns_error(
     client, db_conn, mcp_server, monkeypatch
 ):
-    """When user_secrets has no creds, the tool falls back to env vars."""
-    import httpx
+    """When only one of bot_token / chat_id is set in user_secrets, the
+    tool returns the not-configured error — env must NOT fill the gap."""
     from unittest.mock import AsyncMock, patch
     from app.services.user_secrets import UserSecrets
     from app.auth import SENTINEL_USER_ID
 
     notify_telegram = get_tool_fn(mcp_server, "notify_telegram")
-    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "env-fallback-token")
-    monkeypatch.setenv("TELEGRAM_CHAT_ID", "54321")
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "env-should-be-ignored")
+    monkeypatch.setenv("TELEGRAM_CHAT_ID", "99999")
 
-    captured = {}
-
-    class _FakeResponse:
-        def json(self):
-            return {"ok": True, "result": {"message_id": 99}}
-
-    def _fake_post(url, json=None, timeout=None):  # noqa: A002
-        captured["url"] = url
-        captured["body"] = json
-        return _FakeResponse()
-
-    monkeypatch.setattr(httpx, "post", _fake_post)
-
-    empty_sec = UserSecrets(
+    # Only token, no chat_id.
+    half_sec = UserSecrets(
         user_id=SENTINEL_USER_ID,
-        telegram_bot_token=None,
+        telegram_bot_token="user-token",
         telegram_chat_id=None,
         telegram_webhook_secret=None,
     )
     with patch(
         "app.services.user_secrets.get_secrets",
-        new=AsyncMock(return_value=empty_sec),
+        new=AsyncMock(return_value=half_sec),
     ):
-        result = await notify_telegram(text="env fallback message")
-
-    assert result == {"ok": True, "message_id": 99}
-    assert "env-fallback-token" in captured["url"]
-    assert captured["body"]["chat_id"] == 54321
-    assert captured["body"]["text"] == "env fallback message"
+        result = await notify_telegram(text="hi")
+    assert result.get("ok") is False
+    assert "not configured" in result.get("error", "").lower()

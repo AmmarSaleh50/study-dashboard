@@ -2,8 +2,8 @@
 
 Phase 0: extracted from app/routers/internal.py with no behaviour change.
 Phase 6: per-user chat_id -> user_id lookup happens before dispatch;
-commands operate on the caller's data.  handle_command now accepts an optional
-user_id so it can source the bot token from user_secrets (falling back to env).
+commands operate on the caller's data.  handle_command sources the bot
+token from user_secrets (no env fallback — multi-tenant safety).
 """
 import logging
 import os
@@ -36,21 +36,22 @@ async def send_message(token: str, chat_id: int, text: str) -> None:
 _send_telegram = send_message
 
 
-async def _resolve_bot_token(user_id: Optional[UUID]) -> str:
-    """Return the Telegram bot token for user_id, falling back to env.
+async def _resolve_bot_token(user_id: Optional[UUID]) -> Optional[str]:
+    """Return the Telegram bot token for user_id, or None if not configured.
 
-    Reads from user_secrets when user_id is provided; falls back to
-    TELEGRAM_BOT_TOKEN env (operator / tests).
+    Reads from user_secrets. No env fallback — operator credentials must
+    not leak to other tenants. Callers must handle None (skip sending).
     """
-    if user_id is not None:
-        try:
-            from . import user_secrets as user_secrets_svc
-            secrets = await user_secrets_svc.get_secrets(user_id)
-            if secrets.telegram_bot_token:
-                return secrets.telegram_bot_token
-        except Exception:
-            pass  # gracefully fall through to env
-    return os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
+    if user_id is None:
+        return None
+    try:
+        from . import user_secrets as user_secrets_svc
+        secrets = await user_secrets_svc.get_secrets(user_id)
+        token = (secrets.telegram_bot_token or "").strip()
+        return token or None
+    except Exception:
+        log.exception("failed to load telegram bot token for user_id=%s", user_id)
+        return None
 
 
 async def handle_command(text: str, chat_id: int, user_id: Optional[UUID] = None) -> str:
@@ -64,10 +65,13 @@ async def handle_command(text: str, chat_id: int, user_id: Optional[UUID] = None
     on success — the n8n workflow sends its own rich summary at the end of the
     run. The router must skip sending the reply when it is an empty string.
 
-    Phase 6: accepts optional user_id.  When provided, the bot token is read
-    from user_secrets (falling back to TELEGRAM_BOT_TOKEN env).  The router
-    no longer sends the reply itself; handle_command owns the send for /sync's
-    immediate ack and the router calls this for the final reply.
+    Phase 6: accepts optional user_id.  When provided, the bot token is
+    read from user_secrets (no env fallback).  When the user has no bot
+    token configured, the immediate /sync "Syncing…" ack is skipped — the
+    sync still runs and the n8n workflow's final summary will go nowhere
+    Telegram-side, but the command itself succeeds server-side.  The router
+    no longer sends the reply itself; handle_command owns the send for
+    /sync's immediate ack and the router calls this for the final reply.
     """
     cmd = text.split()[0].lower()
 

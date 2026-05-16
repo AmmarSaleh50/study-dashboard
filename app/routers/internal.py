@@ -5,15 +5,16 @@ via `INTERNAL_API_SECRET`). Used by background jobs (n8n workflows, cron
 scripts) to trigger server-side actions like reindexing or to deliver
 inbound webhooks.
 
-The `/telegram` endpoint is special: it's authenticated by Telegram's own
-`X-Telegram-Bot-Api-Secret-Token` header instead of the shared secret.
+The `/telegram` endpoint is special: it's authenticated by per-user
+`X-Telegram-Bot-Api-Secret-Token` headers (stored in user_secrets), not
+the shared secret. Each user runs their own bot.
 """
 import logging
 import os
 
 from fastapi import APIRouter, BackgroundTasks, Header, HTTPException, Request, status
 
-from ..auth import SENTINEL_USER_ID, set_current_user_id
+from ..auth import set_current_user_id
 from ..services import file_index as file_index_svc
 from ..services import telegram as telegram_svc
 from ..services import user_secrets as user_secrets_svc
@@ -84,14 +85,12 @@ async def telegram_webhook(
     Authenticated by Telegram's own `X-Telegram-Bot-Api-Secret-Token` header,
     which Telegram includes on every webhook delivery if we set it via setWebhook.
 
-    Phase 6: routes to the correct user by looking up `chat_id` in
-    `user_secrets.telegram_chat_id`.  Falls back to the operator sentinel when
-    the chat_id matches `TELEGRAM_CHAT_ID` env but has no user_secrets row.
+    Multi-tenant: each user runs their own bot with their own webhook secret.
+    We extract the chat.id from the payload, resolve it to a user via
+    `user_secrets.telegram_chat_id`, then verify the inbound header against
+    that user's `telegram_webhook_secret`. No env fallback for any of the
+    credentials — operator and user secrets are isolated.
     """
-    expected = os.environ.get("TELEGRAM_WEBHOOK_SECRET", "").strip()
-    if not expected or x_telegram_bot_api_secret_token != expected:
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="bad webhook token")
-
     body = await request.json()
     msg = body.get("message") or {}
     chat_id = (msg.get("chat") or {}).get("id")
@@ -100,17 +99,18 @@ async def telegram_webhook(
     if not chat_id or not text:
         return {"ok": True}
 
-    # --- Phase 6: resolve user_id from chat_id ---------------------------
+    # Resolve chat_id -> user_id BEFORE trusting anything in the payload.
     user_id = await user_secrets_svc.get_user_id_by_chat_id(str(chat_id))
-
     if user_id is None:
-        # Operator-legacy fallback: check TELEGRAM_CHAT_ID env.
-        operator_chat_id = int(os.environ.get("TELEGRAM_CHAT_ID", "0") or "0")
-        if chat_id == operator_chat_id:
-            user_id = SENTINEL_USER_ID
-        else:
-            log.warning("telegram webhook from unrecognised chat_id=%s", chat_id)
-            raise HTTPException(status.HTTP_403_FORBIDDEN, detail="chat_id not registered")
+        log.warning("telegram webhook from unrecognised chat_id=%s", chat_id)
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="unknown telegram chat")
+
+    # Verify the inbound secret token against THIS user's stored secret.
+    secrets = await user_secrets_svc.get_secrets(user_id)
+    expected = (secrets.telegram_webhook_secret or "").strip()
+    if not expected or x_telegram_bot_api_secret_token != expected:
+        log.warning("telegram webhook secret mismatch for user_id=%s", user_id)
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="bad webhook token")
 
     # Stamp the resolved user onto the per-request contextvar so GUC / RLS
     # applies to any DB calls inside handle_command.
@@ -118,11 +118,14 @@ async def telegram_webhook(
 
     reply = await telegram_svc.handle_command(text, chat_id=chat_id, user_id=user_id)
 
-    # Send the reply using the user's own bot token (or env fallback).
+    # Send the reply using the user's own bot token. If they haven't set
+    # one, the command may have completed but the user won't see a reply —
+    # log a warning and move on rather than borrow another tenant's bot.
     if reply:
-        secrets = await user_secrets_svc.get_secrets(user_id)
-        token = secrets.telegram_bot_token or os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
+        token = (secrets.telegram_bot_token or "").strip()
         if token:
             await telegram_svc.send_message(token, chat_id, reply)
+        else:
+            log.warning("no telegram bot token for user_id=%s; dropping reply", user_id)
 
     return {"ok": True}
