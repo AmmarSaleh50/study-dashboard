@@ -43,7 +43,10 @@ class Settings(BaseSettings):
 
     # Public origin (scheme+host, no trailing slash) — required for OAuth/MCP URLs.
     # In prod, set to your public origin (e.g. https://openstudy.dev).
-    public_url: str = ""
+    public_url: str = Field(default="http://localhost:5173", description="Public URL for building verify/reset email links")
+
+    # Signup (Phase 3+). Default OFF — operator-only deployments don't expose signup.
+    signups_enabled: bool = Field(default=False, description="Allow public signup via /auth/signup")
 
     # CORS — comma-separated
     cors_origins: str = "http://localhost:5173,http://localhost:5174"
