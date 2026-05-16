@@ -93,6 +93,17 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
+    # Reset the per-request user-id contextvar at the start of every request.
+    # FastAPI deps run in a per-request task copy of the parent context, so
+    # leakage between requests is normally impossible — but if uvicorn ever
+    # reuses a task (or in test-client edge cases) a stale value could carry
+    # over. This middleware is belt-and-suspenders defense.
+    @app.middleware("http")
+    async def _reset_user_ctx(request, call_next):
+        from .auth import set_current_user_id
+        set_current_user_id(None)
+        return await call_next(request)
+
     # Health — checked by deploy.sh during rollouts. `ok` is true ONLY if
     # every dependency is reachable (db, storage). Returns 200 either way so
     # the caller can read the body for diagnostics.

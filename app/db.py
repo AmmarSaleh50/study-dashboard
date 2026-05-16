@@ -125,8 +125,33 @@ def pool() -> AsyncConnectionPool:
 
 @asynccontextmanager
 async def db():
-    """`async with db() as conn:` — checks out a connection from the pool."""
+    """`async with db() as conn:` — checks out a connection from the pool.
+
+    Phase 4 Task 2 (RLS plumbing): if a per-request user_id is set in the
+    contextvar (via `app.auth.set_current_user_id`), this CM issues
+    `SET LOCAL app.user_id = '<uuid>'` on the connection before yielding.
+    psycopg runs in non-autocommit mode by default, so the first execute
+    opens an implicit transaction that wraps every subsequent statement on
+    the same checkout — meaning `SET LOCAL` persists for the lifetime of
+    the connection's use and applies to all helper calls within a single
+    request. Inert (no-op) when no user is set, e.g. unauthed endpoints or
+    background jobs that haven't called `set_current_user_id`.
+    """
+    # Local import avoids a circular: app.auth imports `from . import db`.
+    from .auth import get_current_user_id
+
     async with pool().connection() as conn:
+        user_id = get_current_user_id()
+        if user_id is not None:
+            async with conn.cursor() as cur:
+                # `SET LOCAL <name> = <value>` is a utility statement that
+                # doesn't accept query parameters, so we use the equivalent
+                # `set_config(name, value, is_local=true)` function which
+                # does. The `true` third arg = transaction-local (=LOCAL).
+                await cur.execute(
+                    "SELECT set_config('app.user_id', %s, true)",
+                    (str(user_id),),
+                )
         yield conn
 
 

@@ -1,5 +1,6 @@
 import json
 import time
+from contextvars import ContextVar
 from dataclasses import dataclass
 from datetime import datetime, timezone, timedelta
 from functools import lru_cache
@@ -14,6 +15,30 @@ from argon2.exceptions import VerifyMismatchError
 
 from . import db
 from .config import get_settings
+
+
+# ── Per-request user context (RLS plumbing) ────────────────────────────────
+#
+# Phase 4 Task 2: every authed request stamps the resolved user_id into this
+# contextvar. `app.db.db()` reads it on each connection checkout and issues
+# `SET LOCAL app.user_id = ?` inside the implicit transaction, so RLS
+# policies referencing `current_setting('app.user_id', true)::uuid` resolve
+# correctly once prod flips off the bypass role. Inert under bypass.
+_current_user_id: ContextVar[Optional[UUID]] = ContextVar(
+    "current_user_id", default=None
+)
+
+
+def set_current_user_id(user_id: Optional[UUID]) -> None:
+    """Store user_id in the per-request contextvar. Called by `optional_user`
+    / `require_user` after resolving the session. Pass `None` to clear."""
+    _current_user_id.set(user_id)
+
+
+def get_current_user_id() -> Optional[UUID]:
+    """Return the user_id set by the current request, or None if unset.
+    Read by `app.db.db()` to scope the connection's session GUC."""
+    return _current_user_id.get()
 
 
 @dataclass(frozen=True)
@@ -155,6 +180,10 @@ async def optional_user(
     """Phase 3: parses user_id out of the signed cookie payload and hydrates
     from the users table. Legacy `b"authed"` cookies fall back to the
     sentinel user (migration grace; Phase 5/6 can drop this).
+
+    Phase 4 Task 2: on successful resolution, stamps the user_id into the
+    per-request contextvar so `app.db.db()` can SET LOCAL the session GUC
+    for RLS.
     """
     if not study_session:
         return None
@@ -167,7 +196,9 @@ async def optional_user(
 
     # Legacy: cookie signed b"authed" → return sentinel.
     if raw == b"authed":
-        return _sentinel_user()
+        user = _sentinel_user()
+        set_current_user_id(user.id)
+        return user
 
     # New: cookie signed JSON {u, iat}.
     try:
@@ -176,7 +207,10 @@ async def optional_user(
     except (json.JSONDecodeError, KeyError, ValueError):
         return None
 
-    return await _load_user_from_db(user_id)
+    user = await _load_user_from_db(user_id)
+    if user is not None:
+        set_current_user_id(user.id)
+    return user
 
 
 async def _load_user_from_db(user_id: UUID) -> Optional[User]:
