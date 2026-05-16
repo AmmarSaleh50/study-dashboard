@@ -32,6 +32,11 @@ jobs:
             set -euo pipefail
             cd /opt/openstudy
             REF="${{ github.event.inputs.ref || github.ref_name }}"
+            # Normalize bare branch names to origin/<branch> so the reset
+            # picks up the freshly-fetched commits, not the stale local branch.
+            if [[ "$REF" != origin/* && "$REF" != v* ]]; then
+              REF="origin/$REF"
+            fi
             echo "Deploying ref: $REF"
             git fetch --all --tags
             git reset --hard "$REF"
