@@ -4,6 +4,29 @@ All notable changes to OpenStudy will be documented here.
 Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 versions follow [SemVer](https://semver.org/spec/v2.0.0.html).
 
+## v0.7.0-pre.2 (unreleased) — Multi-tenant Phase 1
+
+### Schema
+- New `users` table with operator seed row (sentinel UUID, "operator@local").
+- Every owned table now has `user_id NOT NULL FK to users(id) ON DELETE CASCADE` with a sentinel DEFAULT — Phase 0 services continue to work unchanged.
+- Composite PKs and FKs lock per-user data integrity: `courses` PK is `(user_id, code)`; downstream FKs use `(user_id, course_code) → courses(user_id, code)`. Two users can have the same course code.
+- `app_settings` is 1:1 with `users` (PK `user_id`, singleton constraint dropped, `id` column removed).
+- TOTP secret moved from `app_settings` to `users` (audit §6). `app_settings.totp_*` columns retained for rollback safety.
+- `file_index.path` prefixed with `<user_id>/`; idempotent.
+- `events.user_id` populated by the `log_table_change()` trigger.
+- `events.user_id` FK to users dropped — audit logs survive cascade deletes (same precedent as Phase 0's `events.course_code` drop).
+
+### Behaviour (unchanged)
+- App still operates single-tenant via the Phase 0 sentinel. Phase 2 wires services to filter by user_id; until then every INSERT uses the DEFAULT.
+
+### Ops
+- New env vars (optional, default to sentinel): `OPERATOR_USER_ID`, `OPERATOR_EMAIL`, `OPERATOR_DISPLAY_NAME`.
+- `./deploy.sh` invokes `scripts/migrate_study_root.sh` after `db push` to move course folders into the operator subdirectory.
+
+### Tests
+- New `tests/test_phase1_schema.py` (4 tests) locks cascade-delete + composite-FK invariants.
+- Suite total: 255 (was 250 at Phase 0).
+
 ## [v0.6.0] — 2026-04-29
 
 **Internal hardening.** No user-visible feature changes. The PostgREST
