@@ -18,8 +18,7 @@ phases is easier to reason about.
   multi-tenant migration). Created via `/auth/signup` (post-Phase 3) or
   by the operator via CLI. Many users per deployment.
 
-Pre-multi-tenant (≤ v0.6) the operator and user are the same person.
-Post v0.7, they diverge: the operator administers the server; users sign
+As of v0.7, they diverge: the operator administers the server; users sign
 up and use the product. Auth code paths use `User` (a dataclass in
 `app/auth.py`) to carry the user identity through requests.
 
@@ -33,7 +32,7 @@ Basically anything that makes the app better for someone self-hosting it. A non-
 - **i18n / localization** — the Slot `kind` labels are German (`Vorlesung`, `Übung`) by default. Making those user-configurable or translatable would help non-EU users a lot.
 - **New MCP tools** — if you find yourself wishing Claude could do `X` and there's a natural way to expose it, just add it. Pattern is in `app/mcp_tools.py`.
 - **Performance / bundle size** — the frontend chunk is bigger than it needs to be; someone who knows their way around Vite code-splitting could shave a lot.
-- **Tests** — there's no suite yet. Adding pytest + Vitest scaffolding is its own welcome PR.
+- **Tests** — the backend has 318 pytest tests; the frontend has none yet. A Vitest suite for the frontend is its own welcome PR.
 
 ## Things worth a quick issue first
 
@@ -42,7 +41,7 @@ Not "no" — just "let's talk first so you don't waste a weekend":
 - Major framework swaps (React → Svelte, FastAPI → Django).
 - Replacing the `psycopg` async pool with a different DB driver (SQLAlchemy, asyncpg, etc.) — the pool is small but it's load-bearing; every service file goes through it.
 - New top-level entities beyond the current data model (Course / Schedule slot / Lecture / Study topic / Deliverable / Task / Klausur).
-- Multi-user / team / sharing features — the single-user-per-deploy assumption is load-bearing in a bunch of places, and shifting it is a big project.
+- Replacing the multi-tenant data model — every owned table has a `user_id` FK; any change to that assumption touches a lot of files and is a big conversation first.
 
 A one-liner issue like *"would you take a PR that X?"* is all it takes.
 
@@ -51,7 +50,7 @@ A one-liner issue like *"would you take a PR that X?"* is all it takes.
 See [INSTALL.md](./INSTALL.md) for the full walkthrough. TL;DR:
 
 ```bash
-cp .env.example .env                 # fill APP_PASSWORD_HASH, SESSION_SECRET
+cp .env.example .env                 # fill OPERATOR_EMAIL, APP_PASSWORD_HASH, SESSION_SECRET, SECRETS_ENCRYPTION_KEY
 cat > .env.docker <<EOF              # Postgres credentials
 POSTGRES_USER=openstudy
 POSTGRES_PASSWORD=$(openssl rand -hex 24)
@@ -75,7 +74,7 @@ cd web && pnpm install && pnpm dev
 
 ## Testing
 
-The backend has a pytest suite (213 tests as of v0.6.0) that runs against a real Postgres testcontainer with per-test transaction rollback — every test gets a clean DB state without paying for container churn. Service-layer, MCP-tool, and end-to-end OAuth/login flows are all covered.
+The backend has a pytest suite (318 tests as of v0.7.0) that runs against a real Postgres testcontainer with per-test transaction rollback — every test gets a clean DB state without paying for container churn. Service-layer, MCP-tool, and end-to-end OAuth/login flows are all covered.
 
 ```bash
 uv run --no-sync pytest -q              # full suite

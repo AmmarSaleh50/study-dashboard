@@ -14,7 +14,7 @@ A self-hostable personal study dashboard. Track your **courses, schedule, lectur
 ![Database: Postgres 16](https://img.shields.io/badge/db-Postgres%2016-336791)
 ![AI: MCP-native (44 tools)](https://img.shields.io/badge/AI-MCP--native%2044%20tools-7c3aed)
 ![Self-hosted](https://img.shields.io/badge/hosting-self--hosted-111)
-![Status: alpha](https://img.shields.io/badge/status-alpha-orange)
+![Version: v0.7.0](https://img.shields.io/badge/version-v0.7.0-green)
 
 ### Five themes — pick the one that fits your brain
 
@@ -114,7 +114,7 @@ The dashboard is where I see things. Claude is how I edit them. Same database be
 
 The MCP server ships with **44 tools — anything you can do in the UI, Claude can do too**. Create a study topic, mark something studied, upload a file, render a PDF as images, whatever.
 
-- **Multi-tenant SaaS-capable:** per-user data isolation enforced at both the service layer (WHERE filters) and the schema layer (composite FKs + RLS policies). Self-host as single-user or invite many users — same codebase.
+- **Multi-tenant:** every owned table carries a `user_id` FK. Data isolation is enforced at the service layer (WHERE filters) and the schema layer (composite FKs + RLS policies). Run it solo or flip `SIGNUPS_ENABLED=true` to open registration — same codebase, same deploy.
 
 Plug it into Claude.ai as a custom connector (full OAuth 2.1) and those tools are live in **Claude Code on your laptop, claude.ai in your browser, and the Claude iOS app on your phone**. Open Claude anywhere and it has the same view of your coursework that you do.
 
@@ -143,14 +143,25 @@ cd web && pnpm install && cd ..
 
 **2. Generate secrets and write `.env` files.**
 
+Open `.env` and fill in the required values:
+
 ```bash
 cp .env.example .env
 
-# Pick a login password, hash it with Argon2id, and paste the result as APP_PASSWORD_HASH:
-docker run --rm python:3.12-slim sh -c 'pip install -q argon2-cffi && python -c "from argon2 import PasswordHasher; print(PasswordHasher().hash(input(\"password: \")))"'
+# Set your login email (this becomes your username):
+#   OPERATOR_EMAIL=you@example.com
 
-# Generate a 48-byte session secret and paste as SESSION_SECRET:
-python -c 'import secrets; print(secrets.token_urlsafe(48))'
+# Hash a password for first login and paste as APP_PASSWORD_HASH:
+uv run python -m app.tools.hashpw
+# → paste the resulting $argon2id$... string as APP_PASSWORD_HASH
+
+# Generate a session-cookie signing secret:
+python3 -c 'import secrets; print(secrets.token_urlsafe(48))'
+# → paste as SESSION_SECRET
+
+# Generate the encryption key for per-user secrets (Telegram tokens, etc.):
+python3 -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())'
+# → paste as SECRETS_ENCRYPTION_KEY
 
 # Generate a Postgres password and write the Docker-only env file:
 cat > .env.docker <<EOF
@@ -158,10 +169,10 @@ POSTGRES_USER=openstudy
 POSTGRES_PASSWORD=$(openssl rand -hex 24)
 POSTGRES_DB=openstudy
 EOF
-chmod 600 .env.docker
+chmod 600 .env .env.docker
 ```
 
-`.env` holds your application secrets (password hash, session secret, optional Telegram tokens). `.env.docker` holds the Postgres credentials that compose injects into the postgres container. Both are in `.gitignore`.
+`.env` holds your application secrets. `.env.docker` holds the Postgres credentials that compose injects into the postgres container. Both are in `.gitignore`.
 
 **3. Bring up the stack.**
 
@@ -417,14 +428,25 @@ cd web && pnpm install && cd ..
 
 **2. Secrets generieren und `.env`-Dateien schreiben.**
 
+`.env` öffnen und die Pflichtfelder ausfüllen:
+
 ```bash
 cp .env.example .env
 
-# Login-Passwort wählen, mit Argon2id hashen und als APP_PASSWORD_HASH einfügen:
-docker run --rm python:3.12-slim sh -c 'pip install -q argon2-cffi && python -c "from argon2 import PasswordHasher; print(PasswordHasher().hash(input(\"password: \")))"'
+# Login-E-Mail setzen (wird der Benutzername):
+#   OPERATOR_EMAIL=du@beispiel.de
 
-# 48-Byte-Session-Secret generieren und als SESSION_SECRET einfügen:
-python -c 'import secrets; print(secrets.token_urlsafe(48))'
+# Passwort hashen und als APP_PASSWORD_HASH einfügen:
+uv run python -m app.tools.hashpw
+# → den $argon2id$...-String als APP_PASSWORD_HASH einfügen
+
+# Session-Secret generieren:
+python3 -c 'import secrets; print(secrets.token_urlsafe(48))'
+# → als SESSION_SECRET einfügen
+
+# Verschlüsselungskey für Nutzer-Secrets generieren:
+python3 -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())'
+# → als SECRETS_ENCRYPTION_KEY einfügen
 
 # Postgres-Passwort generieren und die Docker-spezifische env-Datei schreiben:
 cat > .env.docker <<EOF
@@ -432,10 +454,10 @@ POSTGRES_USER=openstudy
 POSTGRES_PASSWORD=$(openssl rand -hex 24)
 POSTGRES_DB=openstudy
 EOF
-chmod 600 .env.docker
+chmod 600 .env .env.docker
 ```
 
-`.env` enthält deine App-Secrets (Passwort-Hash, Session-Secret, optional Telegram-Tokens). `.env.docker` enthält die Postgres-Credentials, die Compose in den Postgres-Container injiziert. Beide sind in `.gitignore`.
+`.env` enthält deine App-Secrets. `.env.docker` enthält die Postgres-Credentials, die Compose in den Postgres-Container injiziert. Beide sind in `.gitignore`.
 
 **3. Stack starten.**
 
