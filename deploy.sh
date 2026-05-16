@@ -3,9 +3,13 @@
 #
 # Usage:
 #   ./deploy.sh             # full deploy: build → migrate → roll → health-gate → rollback-on-fail
+#   ./deploy.sh --pull       # fetch + reset to origin/main (or $OPENSTUDY_DEPLOY_REF) before deploying
 #   ./deploy.sh --skip-build # skip image rebuild (useful for env-only changes)
 #   ./deploy.sh --no-rollback # halt on health failure but don't auto-rollback (debugging)
 #   ./deploy.sh --status     # print current image tags + container health and exit
+#
+# Environment variables (for --pull):
+#   OPENSTUDY_DEPLOY_REF  git ref to reset to (default: origin/main); e.g. a version tag like v0.7.2
 #
 # Behaviour:
 #   1. Pre-flight: validate compose, check disk space, check .env files exist.
@@ -36,12 +40,14 @@ HEALTH_INTERVAL=2   # seconds
 SKIP_BUILD=0
 NO_ROLLBACK=0
 SHOW_STATUS=0
+PULL=0
 for arg in "$@"; do
     case "$arg" in
+        --pull)        PULL=1 ;;
         --skip-build)  SKIP_BUILD=1 ;;
         --no-rollback) NO_ROLLBACK=1 ;;
         --status)      SHOW_STATUS=1 ;;
-        -h|--help)     sed -n '2,20p' "$0"; exit 0 ;;
+        -h|--help)     sed -n '2,26p' "$0"; exit 0 ;;
         *) echo "unknown flag: $arg" >&2; exit 2 ;;
     esac
 done
@@ -91,6 +97,18 @@ if [ "$SHOW_STATUS" -eq 1 ]; then
     echo "=== last 20 lines of $LOG ==="
     tail -n 20 "$LOG" 2>/dev/null || echo "(no log yet)"
     exit 0
+fi
+
+# ── pull from origin (--pull) ────────────────────────────────────────────────
+if [ "$PULL" -eq 1 ]; then
+    REF="${OPENSTUDY_DEPLOY_REF:-origin/main}"
+    log "pulling latest from git (ref: $REF)..."
+    git fetch --all --tags 2>&1 | tee -a "$LOG"
+    if ! git reset --hard "$REF" 2>&1 | tee -a "$LOG"; then
+        err "git reset to $REF failed — aborting before any container changes"
+        exit 1
+    fi
+    log "git tree now at: $(git log -1 --oneline)"
 fi
 
 # ── pre-flight ───────────────────────────────────────────────────────────────

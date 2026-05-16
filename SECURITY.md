@@ -1,58 +1,56 @@
-# Security policy
+# Security Policy
 
-Thanks for helping keep OpenStudy and its users safe.
+## Supported Versions
 
-## Supported versions
+| Version | Status |
+|---------|--------|
+| 0.7.x   | ✅ Supported — security fixes |
+| < 0.7   | ❌ Unsupported — please upgrade |
 
-OpenStudy is a fast-moving project. Security fixes land on the **`main` branch only**. If you're running a pinned commit or a fork, rebase onto `main` (or cherry-pick the fix) to pick them up.
+## Reporting a Vulnerability
 
-| Version          | Supported |
-| ---------------- | --------- |
-| `main` (rolling) | ✅        |
-| Older commits    | ❌ — update |
+If you discover a security issue, please **do not** open a public GitHub
+issue. Instead, email:
 
-## Reporting a vulnerability
+**security@openstudy.dev** (forwarded to the maintainer)
 
-**Please do not open a public GitHub issue**, social media post, or blog entry for security-impacting bugs. Use one of the private channels below:
+You can also report via GitHub's private vulnerability disclosure:
+**[Report a vulnerability](https://github.com/openstudy-dev/OpenStudy/security/advisories/new)**
 
-- **Email:** [security@openstudy.dev](mailto:security@openstudy.dev) — preferred.
-- **GitHub private security advisory:** [open one here](https://github.com/openstudy-dev/OpenStudy/security/advisories/new). End-to-end private until the advisory is published.
+### What to include
 
-What to include:
+- A description of the vulnerability and its potential impact.
+- Steps to reproduce (PoC if possible — without harming other users).
+- Affected version(s).
+- Your preferred contact info if you want credit / coordination.
 
-- A clear description of the issue and its potential impact.
-- Step-by-step reproduction (URLs, payloads, code, screenshots).
-- Your assessment of severity and any suggested fix or mitigation.
-- Whether you'd like to be credited publicly when the fix ships.
+### What to expect
 
-## What's in scope
+- Acknowledgement within **72 hours**.
+- An initial assessment within **7 days**.
+- A fix or disclosure timeline within **30 days** for high-severity issues.
+- Public disclosure happens **after** a fix ships, or **90 days** after
+  the initial report — whichever comes first.
 
-- The OpenStudy codebase in this repository (backend, frontend, MCP server, build scripts).
-- The hosted service at `openstudy.dev` and the docker-compose stack it runs.
-- Any first-party packages we publish to npm / PyPI.
+## Scope
 
-## What's out of scope
+OpenStudy is multi-tenant. The following are in scope for security
+reports:
 
-- Denial-of-service that requires significant traffic from the reporter.
-- Self-XSS (attacks that require the victim to paste attacker-supplied code into their own browser console).
-- Missing security headers that don't lead to a concrete, exploitable impact.
-- Social-engineering or phishing attempts against maintainers.
-- Vulnerabilities in third-party dependencies that are already publicly tracked — please report to the upstream project, then open an issue here asking for an upgrade.
-- Reports generated solely by automated scanners with no demonstrated impact.
+- **Cross-user data exposure** — one user reading/writing another user's
+  data via any API surface (REST, MCP, file storage).
+- **Authentication / session bypass** — login, signup, password reset,
+  email verification, TOTP, OAuth consent.
+- **Privilege escalation** — non-operator user gaining operator
+  capabilities.
+- **Credential leakage** — Telegram tokens, encrypted secrets, session
+  cookies.
+- **Stored XSS / SQL injection** — anywhere user input flows into a
+  query or rendered HTML.
 
-## What to expect from us
-
-- **Acknowledgement:** within 72 hours on weekdays.
-- **Initial triage + severity:** within 7 days.
-- **Fix timeline:** depends on severity. Critical issues get same-day / next-day patches; lower-severity issues are scheduled into regular development.
-- You'll be kept in the loop through the whole process.
-
-## Coordinated disclosure
-
-- Once a fix is merged to `main` (and, where relevant, deployed to the hosted service), we publish a GitHub Security Advisory — with a CVE if appropriate — and credit the reporter by default.
-- Prefer to stay anonymous? Say so and we'll honour it.
-- We don't currently offer paid bounties. Substantive reports get a public thank-you, a line in the changelog, and our gratitude.
-
-## Machine-readable contact
-
-RFC 9116 contact file: [`/.well-known/security.txt`](https://openstudy.dev/.well-known/security.txt) (same email, same canonical URL).
+Out of scope:
+- Bugs in third-party services (Hetzner, Cloudflare, Telegram).
+- Denial-of-service via expected rate limits.
+- Self-XSS / social engineering of the operator.
+- Issues in self-hosted setups due to operator misconfiguration
+  (weak passwords, exposed env files, etc.).

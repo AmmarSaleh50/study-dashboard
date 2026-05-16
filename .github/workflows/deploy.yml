@@ -1,0 +1,28 @@
+name: Deploy on tag
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+concurrency:
+  group: deploy-prod
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: SSH deploy to Hetzner
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.HETZNER_HOST }}
+          username: ${{ secrets.HETZNER_USER }}
+          key: ${{ secrets.HETZNER_SSH_KEY }}
+          port: 22
+          command_timeout: 15m
+          script: |
+            set -euo pipefail
+            cd /opt/openstudy
+            OPENSTUDY_DEPLOY_REF="${{ github.ref_name }}" ./deploy.sh --pull
