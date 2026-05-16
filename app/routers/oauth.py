@@ -240,6 +240,7 @@ async def consent(
         raise HTTPException(400, "invalid client/redirect")
 
     code = await oauth_svc.create_auth_code(
+        user_id=user.id,
         client_id=client_id,
         redirect_uri=redirect_uri,
         code_challenge=code_challenge,
@@ -282,7 +283,7 @@ async def token(
     row = await oauth_svc.consume_auth_code(code, client_id, redirect_uri, code_verifier)
     if not row:
         raise HTTPException(400, "invalid_grant")
-    access_token, expires_in = await oauth_svc.create_access_token(client_id, row.get("scope"))
+    access_token, expires_in = await oauth_svc.create_access_token(row["user_id"], client_id, row.get("scope"))
     return JSONResponse(
         {
             "access_token": access_token,

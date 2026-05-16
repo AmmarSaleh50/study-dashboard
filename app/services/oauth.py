@@ -12,6 +12,7 @@ import hashlib
 import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
+from uuid import UUID
 
 from .. import db
 
@@ -63,6 +64,7 @@ async def get_client(client_id: str) -> Optional[dict[str, Any]]:
 
 async def create_auth_code(
     *,
+    user_id: UUID,
     client_id: str,
     redirect_uri: str,
     code_challenge: str,
@@ -73,10 +75,10 @@ async def create_auth_code(
     expires_at = _now() + timedelta(seconds=AUTH_CODE_TTL_SEC)
     await db.execute(
         "INSERT INTO oauth_auth_codes "
-        "(code, client_id, redirect_uri, code_challenge, "
+        "(user_id, code, client_id, redirect_uri, code_challenge, "
         " code_challenge_method, scope, expires_at) "
-        "VALUES (%s, %s, %s, %s, %s, %s, %s)",
-        code, client_id, redirect_uri, code_challenge,
+        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
+        user_id, code, client_id, redirect_uri, code_challenge,
         code_challenge_method, scope, expires_at,
     )
     return code
@@ -127,13 +129,13 @@ async def consume_auth_code(
 
 # ─────────────────────── Access tokens ───────────────────────
 
-async def create_access_token(client_id: str, scope: Optional[str]) -> tuple[str, int]:
+async def create_access_token(user_id: UUID, client_id: str, scope: Optional[str]) -> tuple[str, int]:
     token = _gen(48)
     expires_at = _now() + timedelta(seconds=ACCESS_TOKEN_TTL_SEC)
     await db.execute(
         "INSERT INTO oauth_tokens "
-        "(token, client_id, scope, expires_at) VALUES (%s, %s, %s, %s)",
-        token, client_id, scope, expires_at,
+        "(user_id, token, client_id, scope, expires_at) VALUES (%s, %s, %s, %s, %s)",
+        user_id, token, client_id, scope, expires_at,
     )
     return token, ACCESS_TOKEN_TTL_SEC
 
