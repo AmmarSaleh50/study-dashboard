@@ -12,8 +12,10 @@ from __future__ import annotations
 
 import json
 import re
+from contextvars import ContextVar
 from datetime import date, datetime, timezone
 from typing import Any, Optional
+from uuid import UUID
 
 from mcp.server.fastmcp import FastMCP, Image as MCPImage
 
@@ -49,6 +51,39 @@ from .intents import (
     files as files_intent,
 )
 from .services import fall_behind as fb_svc
+
+
+# ── Per-request MCP user binding ───────────────────────────────────────────
+#
+# `app.mcp_http.OAuthTokenVerifier.verify_token` stamps the Bearer token's
+# user_id into this contextvar. Every tool body below reads it via
+# `_get_mcp_user_id()` instead of the global `SENTINEL_USER_ID`, so each
+# request gets scoped to its bearer's owner. The contextvar lives here (not
+# in `mcp_http.py`) so the import goes mcp_http → mcp_tools — same direction
+# as `register_tools`, avoiding a circular import.
+#
+# Fallback to `SENTINEL_USER_ID`: defensive only. In real MCP request flow
+# `verify_token` always runs first and sets the var; the fallback fires only
+# if a tool is invoked outside a request (e.g. direct .fn() calls in
+# tests/mcp/, which keep working against the operator's data because that's
+# what the existing fixtures expect).
+_mcp_user_id: ContextVar[Optional[UUID]] = ContextVar(
+    "mcp_user_id", default=None
+)
+
+
+def set_mcp_user_id(user_id: Optional[UUID]) -> None:
+    """Store the bearer's user_id for the current MCP request. Called by
+    `app.mcp_http.OAuthTokenVerifier.verify_token`."""
+    _mcp_user_id.set(user_id)
+
+
+def _get_mcp_user_id() -> UUID:
+    """Return the current MCP request's user_id, falling back to the
+    operator sentinel when no token has bound a user (out-of-request
+    invocations only)."""
+    uid = _mcp_user_id.get()
+    return uid if uid is not None else SENTINEL_USER_ID
 
 
 _PAGE_RANGE_RE = re.compile(r"^\s*(\d+)\s*(?:-\s*(\d+))?\s*$")
@@ -101,7 +136,7 @@ def register_tools(server: FastMCP) -> None:
 
         When NOT to use: single-entity lookups — use `get_course`,
         `list_tasks`, etc. directly."""
-        return _jsonable(await dashboard_intent.get_dashboard_summary(SENTINEL_USER_ID))
+        return _jsonable(await dashboard_intent.get_dashboard_summary(_get_mcp_user_id()))
 
     @server.tool()
     async def get_fall_behind() -> list[dict]:
@@ -115,7 +150,7 @@ def register_tools(server: FastMCP) -> None:
 
         When NOT to use: to check ONE specific course — just call
         `list_study_topics(course_code=..., status='not_started')`."""
-        summary = await dashboard_intent.get_dashboard_summary(SENTINEL_USER_ID)
+        summary = await dashboard_intent.get_dashboard_summary(_get_mcp_user_id())
         return _jsonable(summary.fall_behind)
 
     # ─────────────────────── Courses ─────────────────────────
@@ -125,13 +160,13 @@ def register_tools(server: FastMCP) -> None:
         """List all courses. Use when you need to discover which course codes
         exist, or to show the user their course list. If you already know the
         code, prefer `get_course`."""
-        return _jsonable(await courses_intent.list_courses(SENTINEL_USER_ID))
+        return _jsonable(await courses_intent.list_courses(_get_mcp_user_id()))
 
     @server.tool()
     async def get_course(code: str) -> dict | None:
         """Fetch a single course by its code (e.g. 'ASB', 'CS101'). Returns
         None if no such course — `list_courses` first if uncertain."""
-        c = await courses_intent.get_course(SENTINEL_USER_ID, code)
+        c = await courses_intent.get_course(_get_mcp_user_id(), code)
         return _jsonable(c) if c else None
 
     @server.tool()
@@ -163,7 +198,7 @@ def register_tools(server: FastMCP) -> None:
 
         Errors if the code already exists; use `update_course` to modify an
         existing one."""
-        if await courses_intent.get_course(SENTINEL_USER_ID, code) is not None:
+        if await courses_intent.get_course(_get_mcp_user_id(), code) is not None:
             raise ValueError(f"course {code} already exists")
         body = CourseCreate(
             code=code,
@@ -180,7 +215,7 @@ def register_tools(server: FastMCP) -> None:
             exam_retries=exam_retries,
             notes=notes,
         )
-        return _jsonable(await courses_intent.create_course(SENTINEL_USER_ID, body))
+        return _jsonable(await courses_intent.create_course(_get_mcp_user_id(), body))
 
     @server.tool()
     async def delete_course(code: str) -> dict:
@@ -188,9 +223,9 @@ def register_tools(server: FastMCP) -> None:
         tasks, schedule slots, and the exam row for this course are all
         removed. Always ask the user to confirm before calling — this is
         irreversible."""
-        if await courses_intent.get_course(SENTINEL_USER_ID, code) is None:
+        if await courses_intent.get_course(_get_mcp_user_id(), code) is None:
             raise ValueError(f"course {code} not found")
-        await courses_intent.delete_course(SENTINEL_USER_ID, code)
+        await courses_intent.delete_course(_get_mcp_user_id(), code)
         return {"deleted": code}
 
     @server.tool()
@@ -229,7 +264,7 @@ def register_tools(server: FastMCP) -> None:
             exam_retries=exam_retries,
             notes=notes,
         )
-        return _jsonable(await courses_intent.update_course(SENTINEL_USER_ID, code, patch))
+        return _jsonable(await courses_intent.update_course(_get_mcp_user_id(), code, patch))
 
     # ─────────────────────── Schedule slots ──────────────────
     # Weekly recurring timetable entries. NOT individual lecture sessions —
@@ -242,7 +277,7 @@ def register_tools(server: FastMCP) -> None:
         CS101'). Filter by course_code to get one course's timetable.
 
         NOT individual held sessions — those are `list_lectures`."""
-        return _jsonable(await slots_intent.list_slots(SENTINEL_USER_ID, course_code=course_code))
+        return _jsonable(await slots_intent.list_slots(_get_mcp_user_id(), course_code=course_code))
 
     @server.tool()
     async def create_schedule_slot(
@@ -281,7 +316,7 @@ def register_tools(server: FastMCP) -> None:
             ends_on=ends_on,  # type: ignore[arg-type]
             notes=notes,
         )
-        return _jsonable(await slots_intent.create_slot(SENTINEL_USER_ID, payload))
+        return _jsonable(await slots_intent.create_slot(_get_mcp_user_id(), payload))
 
     @server.tool()
     async def update_schedule_slot(
@@ -310,13 +345,13 @@ def register_tools(server: FastMCP) -> None:
             ends_on=ends_on,  # type: ignore[arg-type]
             notes=notes,
         )
-        return _jsonable(await slots_intent.update_slot(SENTINEL_USER_ID, slot_id, patch))
+        return _jsonable(await slots_intent.update_slot(_get_mcp_user_id(), slot_id, patch))
 
     @server.tool()
     async def delete_schedule_slot(slot_id: str) -> dict:
         """Delete a weekly schedule slot by id. Non-destructive elsewhere —
         lectures already held are not affected."""
-        await slots_intent.delete_slot(SENTINEL_USER_ID, slot_id)
+        await slots_intent.delete_slot(_get_mcp_user_id(), slot_id)
         return {"deleted": slot_id}
 
     # ─────────────────────── Exams ───────────────────────────
@@ -331,7 +366,7 @@ def register_tools(server: FastMCP) -> None:
 
         For intermediate graded work (problem sets, projects, labs), use
         `list_deliverables` instead."""
-        return _jsonable(await exams_intent.list_exams(SENTINEL_USER_ID))
+        return _jsonable(await exams_intent.list_exams(_get_mcp_user_id()))
 
     @server.tool()
     async def update_exam(
@@ -362,7 +397,7 @@ def register_tools(server: FastMCP) -> None:
             weight_pct=weight_pct,
             notes=notes,
         )
-        return _jsonable(await exams_intent.update_exam(SENTINEL_USER_ID, course_code, patch))
+        return _jsonable(await exams_intent.update_exam(_get_mcp_user_id(), course_code, patch))
 
     # ─────────────────────── Study topics ────────────────────
     # The atomic unit of "what the student is tracking progress on". One
@@ -384,7 +419,7 @@ def register_tools(server: FastMCP) -> None:
 
         When NOT to use: don't confuse with `list_lectures` (held sessions)
         or `list_deliverables` (graded submissions)."""
-        return _jsonable(await topics_intent.list_study_topics(SENTINEL_USER_ID, course_code=course_code, status=status))
+        return _jsonable(await topics_intent.list_study_topics(_get_mcp_user_id(), course_code=course_code, status=status))
 
     @server.tool()
     async def create_study_topic(
@@ -426,7 +461,7 @@ def register_tools(server: FastMCP) -> None:
             notes=notes,
             sort_order=sort_order,
         )
-        return _jsonable(await topics_intent.create_study_topic(SENTINEL_USER_ID, payload))
+        return _jsonable(await topics_intent.create_study_topic(_get_mcp_user_id(), payload))
 
     @server.tool()
     async def update_study_topic(
@@ -460,14 +495,14 @@ def register_tools(server: FastMCP) -> None:
             notes=notes,
             sort_order=sort_order,
         )
-        return _jsonable(await topics_intent.update_study_topic(SENTINEL_USER_ID, topic_id, patch))
+        return _jsonable(await topics_intent.update_study_topic(_get_mcp_user_id(), topic_id, patch))
 
     @server.tool()
     async def mark_studied(topic_id: str) -> dict:
         """Shortcut: set a topic's status to 'studied' and stamp
         last_reviewed_at. Equivalent to `update_study_topic(topic_id,
         status='studied')` — prefer this shortcut for the common case."""
-        return _jsonable(await topics_intent.update_study_topic(SENTINEL_USER_ID, topic_id, StudyTopicPatch(status="studied")))
+        return _jsonable(await topics_intent.update_study_topic(_get_mcp_user_id(), topic_id, StudyTopicPatch(status="studied")))
 
     @server.tool()
     async def set_confidence(topic_id: str, confidence: int) -> dict:
@@ -479,7 +514,7 @@ def register_tools(server: FastMCP) -> None:
         get it", mark_studied + set_confidence=1 captures that cleanly."""
         if confidence < 0 or confidence > 5:
             raise ValueError("confidence must be 0..5")
-        return _jsonable(await topics_intent.update_study_topic(SENTINEL_USER_ID, topic_id, StudyTopicPatch(confidence=confidence)))
+        return _jsonable(await topics_intent.update_study_topic(_get_mcp_user_id(), topic_id, StudyTopicPatch(confidence=confidence)))
 
     @server.tool()
     async def add_lecture_topics(
@@ -530,7 +565,7 @@ def register_tools(server: FastMCP) -> None:
             lecture_id=lecture_id,
             create_lecture=create_lecture,
         )
-        return _jsonable(await topics_intent.add_lecture_topics(SENTINEL_USER_ID, payload))
+        return _jsonable(await topics_intent.add_lecture_topics(_get_mcp_user_id(), payload))
 
     @server.tool()
     async def delete_study_topic(topic_id: str) -> dict:
@@ -538,7 +573,7 @@ def register_tools(server: FastMCP) -> None:
         just wants to stop tracking progress, consider
         `update_study_topic(status='skipped'-equivalent)` instead — but
         there's no skipped status, so deletion is usually fine."""
-        await topics_intent.delete_study_topic(SENTINEL_USER_ID, topic_id)
+        await topics_intent.delete_study_topic(_get_mcp_user_id(), topic_id)
         return {"deleted": topic_id}
 
     # ─────────────────────── Deliverables ────────────────────
@@ -564,7 +599,7 @@ def register_tools(server: FastMCP) -> None:
         due = datetime.fromisoformat(due_before) if due_before else None
         return _jsonable(
             await deliverables_intent.list_deliverables(
-                SENTINEL_USER_ID, course_code=course_code, status=status, due_before=due
+                _get_mcp_user_id(), course_code=course_code, status=status, due_before=due
             )
         )
 
@@ -601,7 +636,7 @@ def register_tools(server: FastMCP) -> None:
             weight_info=weight_info,
             notes=notes,
         )
-        return _jsonable(await deliverables_intent.create_deliverable(SENTINEL_USER_ID, payload))
+        return _jsonable(await deliverables_intent.create_deliverable(_get_mcp_user_id(), payload))
 
     @server.tool()
     async def update_deliverable(
@@ -629,21 +664,21 @@ def register_tools(server: FastMCP) -> None:
             weight_info=weight_info,
             notes=notes,
         )
-        return _jsonable(await deliverables_intent.update_deliverable(SENTINEL_USER_ID, deliverable_id, patch))
+        return _jsonable(await deliverables_intent.update_deliverable(_get_mcp_user_id(), deliverable_id, patch))
 
     @server.tool()
     async def mark_deliverable_submitted(deliverable_id: str) -> dict:
         """Shortcut: flip a deliverable to status='submitted' and stamp
         submitted_at. Prefer this over `update_deliverable` for the common
         "I handed it in" case."""
-        return _jsonable(await deliverables_intent.mark_submitted(SENTINEL_USER_ID, deliverable_id))
+        return _jsonable(await deliverables_intent.mark_submitted(_get_mcp_user_id(), deliverable_id))
 
     @server.tool()
     async def delete_deliverable(deliverable_id: str) -> dict:
         """Delete a deliverable by id. Typically only used when it was added
         by mistake — use `update_deliverable(status='skipped')` if the user
         decided to skip it instead."""
-        await deliverables_intent.delete_deliverable(SENTINEL_USER_ID, deliverable_id)
+        await deliverables_intent.delete_deliverable(_get_mcp_user_id(), deliverable_id)
         return {"deleted": deliverable_id}
 
     # ─────────────────────── Tasks ───────────────────────────
@@ -671,7 +706,7 @@ def register_tools(server: FastMCP) -> None:
         due = datetime.fromisoformat(due_before) if due_before else None
         return _jsonable(
             await tasks_intent.list_tasks(
-                SENTINEL_USER_ID, course_code=course_code, status=status, priority=priority, due_before=due, tag=tag
+                _get_mcp_user_id(), course_code=course_code, status=status, priority=priority, due_before=due, tag=tag
             )
         )
 
@@ -698,7 +733,7 @@ def register_tools(server: FastMCP) -> None:
             priority=priority,  # type: ignore[arg-type]
             tags=tags,
         )
-        return _jsonable(await tasks_intent.create_task(SENTINEL_USER_ID, payload))
+        return _jsonable(await tasks_intent.create_task(_get_mcp_user_id(), payload))
 
     @server.tool()
     async def update_task(
@@ -723,24 +758,24 @@ def register_tools(server: FastMCP) -> None:
             priority=priority,  # type: ignore[arg-type]
             tags=tags,
         )
-        return _jsonable(await tasks_intent.update_task(SENTINEL_USER_ID, task_id, patch))
+        return _jsonable(await tasks_intent.update_task(_get_mcp_user_id(), task_id, patch))
 
     @server.tool()
     async def complete_task(task_id: str) -> dict:
         """Shortcut: mark a task as done and stamp completed_at. Prefer this
         over `update_task(status='done')` for the common completion case."""
-        return _jsonable(await tasks_intent.complete_task(SENTINEL_USER_ID, task_id))
+        return _jsonable(await tasks_intent.complete_task(_get_mcp_user_id(), task_id))
 
     @server.tool()
     async def reopen_task(task_id: str) -> dict:
         """Shortcut: revert a done task back to 'open' and clear
         completed_at. For when the user said "done" prematurely."""
-        return _jsonable(await tasks_intent.reopen_task(SENTINEL_USER_ID, task_id))
+        return _jsonable(await tasks_intent.reopen_task(_get_mcp_user_id(), task_id))
 
     @server.tool()
     async def delete_task(task_id: str) -> dict:
         """Delete a task by id. Safe — no cascades."""
-        await tasks_intent.delete_task(SENTINEL_USER_ID, task_id)
+        await tasks_intent.delete_task(_get_mcp_user_id(), task_id)
         return {"deleted": task_id}
 
     # ─────────────────────── Lectures ────────────────────────
@@ -755,7 +790,7 @@ def register_tools(server: FastMCP) -> None:
         by course_code then number.
 
         NOT the recurring timetable (that's `list_schedule_slots`)."""
-        return _jsonable(await lectures_intent.list_lectures(SENTINEL_USER_ID, course_code=course_code))
+        return _jsonable(await lectures_intent.list_lectures(_get_mcp_user_id(), course_code=course_code))
 
     @server.tool()
     async def create_lecture(
@@ -789,7 +824,7 @@ def register_tools(server: FastMCP) -> None:
             attended=attended,
             notes=notes,
         )
-        return _jsonable(await lectures_intent.create_lecture(SENTINEL_USER_ID, payload))
+        return _jsonable(await lectures_intent.create_lecture(_get_mcp_user_id(), payload))
 
     @server.tool()
     async def update_lecture(
@@ -813,19 +848,19 @@ def register_tools(server: FastMCP) -> None:
             attended=attended,
             notes=notes,
         )
-        return _jsonable(await lectures_intent.update_lecture(SENTINEL_USER_ID, lecture_id, patch))
+        return _jsonable(await lectures_intent.update_lecture(_get_mcp_user_id(), lecture_id, patch))
 
     @server.tool()
     async def mark_lecture_attended(lecture_id: str, attended: bool = True) -> dict:
         """Shortcut: flip a lecture's `attended` flag. Call with
         attended=False to un-mark."""
-        return _jsonable(await lectures_intent.mark_attended(SENTINEL_USER_ID, lecture_id, attended=attended))
+        return _jsonable(await lectures_intent.mark_attended(_get_mcp_user_id(), lecture_id, attended=attended))
 
     @server.tool()
     async def delete_lecture(lecture_id: str) -> dict:
         """Delete a lecture. Linked study topics keep existing — their
         lecture_id is cleared to null, not cascaded."""
-        await lectures_intent.delete_lecture(SENTINEL_USER_ID, lecture_id)
+        await lectures_intent.delete_lecture(_get_mcp_user_id(), lecture_id)
         return {"deleted": lecture_id}
 
     # ─────────────────────── Reopen helpers ──────────────────
@@ -834,7 +869,7 @@ def register_tools(server: FastMCP) -> None:
     async def reopen_deliverable(deliverable_id: str) -> dict:
         """Shortcut: revert a submitted deliverable back to 'open'. For
         "wait, I actually haven't handed it in yet" cases."""
-        return _jsonable(await deliverables_intent.reopen_deliverable(SENTINEL_USER_ID, deliverable_id))
+        return _jsonable(await deliverables_intent.reopen_deliverable(_get_mcp_user_id(), deliverable_id))
 
     # ─────────────────────── Events (activity log) ───────────
 
@@ -852,7 +887,7 @@ def register_tools(server: FastMCP) -> None:
         tracking what needs doing — that's `list_tasks` / `list_deliverables`."""
         s = datetime.fromisoformat(since) if since else None
         return _jsonable(
-            await events_intent.list_events(SENTINEL_USER_ID, since=s, kind=kind, course_code=course_code, limit=limit)
+            await events_intent.list_events(_get_mcp_user_id(), since=s, kind=kind, course_code=course_code, limit=limit)
         )
 
     @server.tool()
@@ -871,7 +906,7 @@ def register_tools(server: FastMCP) -> None:
 
         return _jsonable(
             await events_intent.record_event(
-                SENTINEL_USER_ID,
+                _get_mcp_user_id(),
                 EventCreate(kind=kind, course_code=course_code, payload=payload),
             )
         )
@@ -887,7 +922,7 @@ def register_tools(server: FastMCP) -> None:
         Call this FIRST before any time-sensitive work — knowing the user's
         timezone prevents deadline-off-by-hours bugs, and knowing
         semester_start/end lets you compute "week N" correctly."""
-        return _jsonable(await settings_intent.get_settings(SENTINEL_USER_ID))
+        return _jsonable(await settings_intent.get_settings(_get_mcp_user_id()))
 
     @server.tool()
     async def update_app_settings(
@@ -918,7 +953,7 @@ def register_tools(server: FastMCP) -> None:
             timezone=timezone,
             locale=locale,
         )
-        return _jsonable(await settings_intent.update_settings(SENTINEL_USER_ID, patch))
+        return _jsonable(await settings_intent.update_settings(_get_mcp_user_id(), patch))
 
     # ─────────────────────── Meta ─────────────────────────────
 
@@ -931,7 +966,7 @@ def register_tools(server: FastMCP) -> None:
         from zoneinfo import ZoneInfo
 
         try:
-            settings_obj = await settings_intent.get_settings(SENTINEL_USER_ID)
+            settings_obj = await settings_intent.get_settings(_get_mcp_user_id())
             tz_name = settings_obj.timezone or "UTC"
             tz = ZoneInfo(tz_name)
         except Exception:
@@ -959,7 +994,7 @@ def register_tools(server: FastMCP) -> None:
 
         To read a file's contents, pass its `path` to `read_course_file`."""
         clean = (prefix or "").strip().strip("/")
-        entries = await files_intent.list_files(SENTINEL_USER_ID, clean, limit=limit)
+        entries = await files_intent.list_files(_get_mcp_user_id(), clean, limit=limit)
         out: list[dict] = []
         for e in entries:
             name = e.get("name") or ""
@@ -999,7 +1034,7 @@ def register_tools(server: FastMCP) -> None:
         feed tool-returned images to the model.
 
         To browse, use `list_course_files` first."""
-        data = await files_intent.download(SENTINEL_USER_ID, path)
+        data = await files_intent.download(_get_mcp_user_id(), path)
         ext = (path.rsplit(".", 1)[-1] if "." in path else "").lower()
 
         if ext in ("md", "txt", ""):

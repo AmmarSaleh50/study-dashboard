@@ -11,11 +11,17 @@ gets its task group started via the normal path. `_per_request_mcp_app`
 below sidesteps this by rebuilding the FastMCP server + entering its
 lifespan context fresh on every inbound request. Heavy compared to a
 long-lived session manager, but bulletproof.
+
+Phase 5 Task 1: per-request user binding. `OAuthTokenVerifier.verify_token`
+reads the row's user_id and stashes it in a contextvar that mcp_tools
+reads at tool-invocation time, so each Bearer token scopes every tool
+call to that token's owner.
 """
 from __future__ import annotations
 
 import logging
 from typing import Optional
+from uuid import UUID
 
 from mcp.server.auth.provider import AccessToken, TokenVerifier
 from mcp.server.auth.settings import AuthSettings
@@ -23,7 +29,7 @@ from mcp.server.fastmcp import FastMCP
 from mcp.server.transport_security import TransportSecuritySettings
 
 from .config import get_settings
-from .mcp_tools import register_tools
+from .mcp_tools import register_tools, set_mcp_user_id
 from .services import oauth as oauth_svc
 
 log = logging.getLogger(__name__)
@@ -38,6 +44,18 @@ class OAuthTokenVerifier(TokenVerifier):
         if not row:
             return None
         scope = row.get("scope") or "mcp"
+        # Phase 5 Task 1: bind the bearer's user_id into the per-request
+        # contextvar so mcp_tools call sites read this token's owner
+        # instead of the global operator sentinel. Both sides run in the
+        # same async task per request (FastMCP dispatches synchronously
+        # within a request scope under the per-request app rebuild in
+        # `_per_request_mcp_app`), so the value set here is visible inside
+        # every tool body invoked on this request.
+        user_id = row.get("user_id")
+        if user_id is not None:
+            if not isinstance(user_id, UUID):
+                user_id = UUID(str(user_id))
+            set_mcp_user_id(user_id)
         return AccessToken(
             token=token,
             client_id=row["client_id"],
